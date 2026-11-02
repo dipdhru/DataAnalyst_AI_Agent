@@ -1,0 +1,27 @@
+# Phase 0 skeleton. The Streamlit UI and the briefing scheduler join in later phases.
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./data:/app/data:ro       # Olist test data and any local SQLite files
+      - ./state:/app/state        # app.db (catalog) and uploads.duckdb
+
+  # Optional local Postgres for trying the live-DB connector: `docker compose --profile pg up`
+  postgres:
+    image: postgres:16
+    profiles: ["pg"]
+    environment:
+      POSTGRES_USER: analyst
+      POSTGRES_PASSWORD: analyst
+      POSTGRES_DB: analyst
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
