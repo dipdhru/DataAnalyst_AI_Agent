@@ -7,15 +7,15 @@ read it before starting a new phase.
 
 - Done: phase 0 (scaffold) and phase 1 (connectors, DuckDB file ingestion, schema catalog with
   column profiling, FastAPI endpoints).
-- Next: phase 2 (agent core: tool loop, golden question eval). It needs the golden question
-  set first. Claude may draft questions, SQL and answers from the data, but an expected answer
-  only counts once the user has reviewed and approved it (including the metric definitions
-  behind it, e.g. what "revenue" or "late delivery" means).
+- Phase 2 in progress: agent core built (tool loop, semantic layer, eval runner, `/ask`
+  endpoint) and tested offline with a scripted fake model; not yet run against the live API.
+  Golden questions: Claude may draft questions, SQL and answers, but an expected answer only
+  counts once the user has approved it (definitions are approved; questions are still draft).
 - Not yet: UI (Streamlit, phase 3), memory, briefing, auth. Don't build ahead of the phase.
 
 ### Deferred on purpose
-- LLM-written table/column descriptions: phase 2, once the Claude client exists. The store
-  already supports `description_source="llm"`.
+- LLM-written table/column descriptions: still to do in phase 2. The store already supports
+  `description_source="llm"`.
 - Memory tables (conversations, glossary, verified_queries, preferences): phase 4. Put them in
   `state/app.db` next to the catalog tables.
 - PII masking: phase 6. Until then, column profile `samples` store raw values.
@@ -33,6 +33,7 @@ docker compose up --build
 uv run python scripts/build_golden.py     # recompute golden answers (--check: verify only)
 uv run python scripts/setup_bird.py       # unpack BIRD Mini-Dev into data/bird (see docs/)
 uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 min)
+uv run python scripts/run_eval.py --ids rev_total   # live agent eval: calls Claude, costs money
 ```
 
 Before calling a change done: tests and ruff both pass.
@@ -54,14 +55,32 @@ src/analyst/
     relationships.py infers joins the DB doesn't declare (Olist declares none)
     store.py         persists catalogs in state/app.db (SQLite)
     service.py       refresh / edit descriptions; keeps user descriptions across refreshes
-  api/app.py         FastAPI routes; create_app(settings) for tests
-tests/               pytest, against Olist in data/olist/
+  semantic.py        metrics.yaml loader: business definitions per source
+  agent/
+    tools.py         list_tables, describe_table, run_sql, submit_answer (strict schemas)
+    prompt.py        system prompt: tables, definitions, rules (stable per source, cached)
+    loop.py          manual tool loop; final SQL is executed before an answer is accepted
+    providers.py     model clients: Claude (Anthropic SDK) or any OpenAI-compatible API
+  evals/
+    scoring.py       answer_match (tolerant) and execution_match (BIRD EX)
+    runner.py        runs the agent over golden questions; cost per question
+  api/app.py         FastAPI routes; create_app(settings, llm_client) for tests
+tests/               pytest, against Olist in data/olist/; fake_claude.py scripts the model
 evals/golden.yaml    golden questions: definitions, SQL, expected answers, draft/approved status
 docs/bird-alignment.md   plan for scoring the agent on the BIRD text-to-SQL benchmark
 scripts/build_golden.py  computes expected answers from the SQL; never hand-edit them
 ```
 
 ## Rules
+
+- **Agent tests never call the API.** Use `tests/fake_claude.py` to script replies. Live runs
+  (`scripts/run_eval.py`) cost money: only run them when the user asks.
+- **Providers:** `agent.provider` in `config.yaml`. The loop speaks the Anthropic Messages
+  shape; `providers.OpenAICompatClient` translates for Gemini/Groq/OpenRouter/Ollama (free
+  tiers, used while the user doesn't want to spend). Keep the loop provider-neutral.
+- **Claude API usage:** model and effort come from `config.yaml` (`agent:`). No forced
+  `tool_choice` (400 on Opus 5.5); tools use `strict: true`; history is append-only (append the
+  full `response.content`); refusals use server-side `fallbacks: "default"`.
 
 - **Every query goes through `Connector.run_query`.** It validates with `sql_guard`, clamps the
   row limit, enforces the timeout and converts values to JSON-safe types. Never call a

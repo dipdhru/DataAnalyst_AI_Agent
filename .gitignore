@@ -13,3 +13,4 @@ data/olist/
 # BIRD Mini-Dev benchmark data; see docs/bird-alignment.md.
 data/bird/
 config.bird.yaml
+evals/runs/

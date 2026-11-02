@@ -8,7 +8,6 @@ measuring our plumbing, not the agent. Run with `uv run pytest -m bird` after
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from collections import Counter
 from pathlib import Path
@@ -18,6 +17,7 @@ import pytest
 
 from analyst.config import QueryLimits
 from analyst.connectors import SqlAlchemyConnector
+from analyst.evals.scoring import has_top_level_order_by
 from analyst.models import to_jsonable
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -61,18 +61,6 @@ def _raw(db_id: str, sql: str) -> list[tuple[Any, ...]]:
         con.close()
 
 
-def _top_level_order_by(sql: str) -> bool:
-    depth = 0
-    for token in re.findall(r"\(|\)|\bORDER\s+BY\b", sql, flags=re.IGNORECASE):
-        if token == "(":
-            depth += 1
-        elif token == ")":
-            depth -= 1
-        elif depth == 0:
-            return True
-    return False
-
-
 @pytest.mark.parametrize("q", _questions(), ids=lambda q: f"{q['question_id']}-{q['db_id']}")
 def test_gold_sql_survives_run_query(q: dict[str, Any], connectors) -> None:
     if not _db_path(q["db_id"]).exists():
@@ -81,7 +69,7 @@ def test_gold_sql_survives_run_query(q: dict[str, Any], connectors) -> None:
     result = connectors(q["db_id"]).run_query(q["SQL"])
     assert not result.truncated
     got = [tuple(row) for row in result.rows]
-    if _top_level_order_by(q["SQL"]):
+    if has_top_level_order_by(q["SQL"]):
         assert got == expected, f"order or values differ\nran: {result.sql}"
     else:
         assert Counter(got) == Counter(expected), f"rows differ\nran: {result.sql}"

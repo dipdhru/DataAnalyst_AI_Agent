@@ -13,6 +13,20 @@ profiling:
   max_rows: 1000000         # larger tables are profiled on their first N rows
   timeout_seconds: 120
 
+agent:
+  # Free for now: Gemini's free tier through its OpenAI-compatible API (key: GEMINI_API_KEY in
+  # .env). For Claude, set provider: anthropic and model: claude-opus-5-5 (needs API credits).
+  provider: openai_compatible
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  api_key_env: GEMINI_API_KEY
+  model: gemini-3.6-flash   # free tier: 20 requests/day per model (checked 2026-11-02)
+  min_seconds_between_calls: 5  # free tier allows roughly 10-15 requests a minute
+  effort: high              # Claude only: low | medium | high | xhigh | max
+  max_steps: 15             # model turns per question before giving up
+  result_rows_shown: 50     # rows of each query result the model sees
+
+metrics_path: metrics.yaml  # business definitions per source (semantic layer)
+
 uploads:
   name: uploads             # source name for uploaded CSV/Excel tables
   max_upload_mb: 200
