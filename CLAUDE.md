@@ -7,9 +7,19 @@ read it before starting a new phase.
 
 - Done: phase 0 (scaffold) and phase 1 (connectors, DuckDB file ingestion, schema catalog with
   column profiling, FastAPI endpoints).
-- Next: phase 2 (agent core: tool loop, golden question eval). It needs the user's golden
-  question set first; don't invent expected answers.
+- Next: phase 2 (agent core: tool loop, golden question eval). It needs the golden question
+  set first. Claude may draft questions, SQL and answers from the data, but an expected answer
+  only counts once the user has reviewed and approved it (including the metric definitions
+  behind it, e.g. what "revenue" or "late delivery" means).
 - Not yet: UI (Streamlit, phase 3), memory, briefing, auth. Don't build ahead of the phase.
+
+### Deferred on purpose
+- LLM-written table/column descriptions: phase 2, once the Claude client exists. The store
+  already supports `description_source="llm"`.
+- Memory tables (conversations, glossary, verified_queries, preferences): phase 4. Put them in
+  `state/app.db` next to the catalog tables.
+- PII masking: phase 6. Until then, column profile `samples` store raw values.
+- Audit log of every query and auth: phase 6.
 
 ## Commands
 
@@ -50,6 +60,8 @@ tests/               pytest, against Olist in data/olist/
 - **Every query goes through `Connector.run_query`.** It validates with `sql_guard`, clamps the
   row limit, enforces the timeout and converts values to JSON-safe types. Never call a
   connector's `_execute` or a raw engine from new code, including the profiler and the agent.
+  The one exception is tests that deliberately bypass the guard to prove the connection-level
+  defences hold (read-only SQLite, DuckDB file access blocked).
 - **Read-only, two layers.** The connection is read-only (SQLite `mode=ro`, Postgres
   `TRANSACTION READ ONLY`, DuckDB `enable_external_access=False`), and `sql_guard` rejects
   anything that isn't a single SELECT. Keep both; neither is enough alone.
@@ -74,7 +86,9 @@ tests/               pytest, against Olist in data/olist/
 - Module docstring saying what the module is for. Comments explain *why*, not *what*.
 - Errors: raise specific exceptions (`UnsafeQueryError`, `QueryError`, `QueryTimeoutError`,
   `UnsupportedFileError`, `TableExistsError`, `KeyError` for unknown names); map them to HTTP
-  status codes only in `api/app.py`.
+  status codes only in `api/app.py`. Current mapping: `UnsafeQueryError` and `QueryError` 400,
+  `QueryTimeoutError` 408, unknown source/table/column 404, `TableExistsError` 409,
+  `UnsupportedFileError` 415, upload over `max_upload_mb` 413.
 - No new dependency without a reason; add it with `uv add` so `uv.lock` stays in sync.
 
 ## Tests
