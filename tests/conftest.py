@@ -25,11 +25,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         for item in items:
             if "olist" in item.fixturenames or item.get_closest_marker("full_olist"):
                 item.add_marker(skip)
-    if "full_olist" not in (config.getoption("-m") or ""):
-        skip_full = pytest.mark.skip(reason="full dataset: run with -m full_olist")
+    selected = config.getoption("-m") or ""
+    for marker, why in (("full_olist", "full dataset"), ("bird", "BIRD benchmark data")):
+        if marker in selected:
+            continue
+        skip = pytest.mark.skip(reason=f"{why}: run with -m {marker}")
         for item in items:
-            if item.get_closest_marker("full_olist"):
-                item.add_marker(skip_full)
+            if item.get_closest_marker(marker):
+                item.add_marker(skip)
 
 
 @pytest.fixture(scope="session")

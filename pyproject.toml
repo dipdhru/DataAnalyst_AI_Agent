@@ -38,6 +38,7 @@ packages = ["src/analyst"]
 testpaths = ["tests"]
 markers = [
     "full_olist: runs against the full Olist dataset in data/olist (slower)",
+    "bird: runs against BIRD Mini-Dev in data/bird (run scripts/setup_bird.py first)",
 ]
 
 [tool.ruff]

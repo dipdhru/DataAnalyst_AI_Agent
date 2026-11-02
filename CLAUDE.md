@@ -30,6 +30,9 @@ uv run pytest -q -m full_olist            # full Olist dataset
 uv run ruff check . && uv run ruff format --check .
 uv run uvicorn analyst.api.app:app --reload
 docker compose up --build
+uv run python scripts/build_golden.py     # recompute golden answers (--check: verify only)
+uv run python scripts/setup_bird.py       # unpack BIRD Mini-Dev into data/bird (see docs/)
+uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 min)
 ```
 
 Before calling a change done: tests and ruff both pass.
@@ -53,6 +56,9 @@ src/analyst/
     service.py       refresh / edit descriptions; keeps user descriptions across refreshes
   api/app.py         FastAPI routes; create_app(settings) for tests
 tests/               pytest, against Olist in data/olist/
+evals/golden.yaml    golden questions: definitions, SQL, expected answers, draft/approved status
+docs/bird-alignment.md   plan for scoring the agent on the BIRD text-to-SQL benchmark
+scripts/build_golden.py  computes expected answers from the SQL; never hand-edit them
 ```
 
 ## Rules
