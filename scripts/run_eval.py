@@ -7,6 +7,10 @@ tier (Gemini) it is rate-limited instead.
     uv run python scripts/run_eval.py                                 # every question
     uv run python scripts/run_eval.py --status approved               # approved only
     uv run python scripts/run_eval.py --provider anthropic --model claude-haiku-5-5
+    uv run python scripts/run_eval.py --resume    # free tier: run daily until all are done
+
+--resume keeps progress in evals/runs/campaign-<model>.json. Each run asks only the questions
+not answered yet and stops cleanly when the daily free quota runs out.
 
 Needs the provider's key in .env (GEMINI_API_KEY, or ANTHROPIC_API_KEY for Claude) and a
 built catalog for the golden set's source. Results go to evals/runs/<timestamp>.json.
@@ -28,6 +32,7 @@ from analyst.agent.providers import ProviderError, make_llm_client
 from analyst.catalog import CatalogService, CatalogStore
 from analyst.config import load_settings
 from analyst.connectors import SourceRegistry
+from analyst.evals.campaign import Campaign, CampaignMismatchError, campaign_path
 from analyst.evals.runner import EvalResult, run_eval, summarize
 from analyst.semantic import load_semantics
 
@@ -49,6 +54,16 @@ def main() -> int:
         "--effort",
         choices=["low", "medium", "high", "xhigh", "max"],
         help="override agent.effort from config.yaml",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue a multi-day run, skipping questions already answered",
+    )
+    parser.add_argument(
+        "--restart",
+        action="store_true",
+        help="with --resume: throw away saved progress and start over",
     )
     args = parser.parse_args()
 
@@ -74,6 +89,23 @@ def main() -> int:
         settings.agent.model = args.model
     if args.effort:
         settings.agent.effort = args.effort
+    out_dir = ROOT / "evals" / "runs"
+    campaign = None
+    if args.resume:
+        path = campaign_path(out_dir, settings.agent.model)
+        if args.restart:
+            path.unlink(missing_ok=True)
+        try:
+            campaign = Campaign(path, model=settings.agent.model, provider=settings.agent.provider)
+        except CampaignMismatchError as e:
+            print(e)
+            return 2
+        total = len(questions)
+        questions = campaign.remaining(questions)
+        print(f"resuming {path.relative_to(ROOT)}: {total - len(questions)}/{total} done")
+        if not questions:
+            return _report(campaign.results(), settings, out_dir, final=True)
+
     source = golden["source"]
     registry = SourceRegistry(settings, only={source})
     try:
@@ -96,6 +128,8 @@ def main() -> int:
         def show(r: EvalResult) -> None:
             mark = "PASS" if r.passed else "FAIL"
             print(f"{mark} {r.id:24} {r.agent.turns:2} turns ${r.cost_usd or 0:.3f}  {r.reason}")
+            if campaign:
+                campaign.add(r)
 
         effort = (
             f", effort {settings.agent.effort}" if settings.agent.provider == "anthropic" else ""
@@ -114,7 +148,17 @@ def main() -> int:
                 on_question=lambda q: print(f"\n[{q['id']}] {q['question']}", flush=True),
             )
         except ProviderError as e:
+            if campaign and "daily free quota" in e.message:
+                done = len(campaign.data["results"])
+                print(f"\nStopped for today: {e.message}.")
+                print(
+                    f"Progress saved: {done} questions done, {len(golden['questions']) - done}"
+                    " to go. Run the same command tomorrow to continue."
+                )
+                return 0
             print(f"Model provider error {e.status_code}: {e.message}")
+            if campaign:
+                print("Progress so far is saved; run the same command again to continue.")
             return 1
         except anthropic.AuthenticationError:
             print("Claude API: invalid or missing key (ANTHROPIC_API_KEY in .env)")
@@ -128,9 +172,16 @@ def main() -> int:
     finally:
         registry.close()
 
+    if campaign:
+        return _report(campaign.results(), settings, out_dir, final=True)
+    return _report(results, settings, out_dir, final=False)
+
+
+def _report(results: list[EvalResult], settings, out_dir: Path, *, final: bool) -> int:
     summary = summarize(results)
+    if final:
+        print("\nAll questions answered.")
     print(json.dumps(summary, indent=2))
-    out_dir = ROOT / "evals" / "runs"
     out_dir.mkdir(exist_ok=True)
     stamp = dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     out = out_dir / f"{stamp}.json"
@@ -138,7 +189,7 @@ def main() -> int:
         json.dumps(
             {
                 "model": settings.agent.model,
-                "effort": settings.agent.effort,
+                "provider": settings.agent.provider,
                 "summary": summary,
                 "results": [r.model_dump(mode="json") for r in results],
             },

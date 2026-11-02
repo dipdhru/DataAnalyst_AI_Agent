@@ -56,3 +56,4 @@ olist:
     - Orders run from 2016-09 to 2018-10. 2016 and 2018-09/10 have very few orders, so
       compare full years with 2017 and same periods with January to August.
     - The data has no costs, margins, web traffic or marketing spend.
+    - "Money amounts are Brazilian reais (R$), so write R$, not $."

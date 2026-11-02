@@ -5,7 +5,7 @@ questions, get answers with SQL, tables and charts. See [build-brief.md](build-b
 the full plan.
 
 Current state: **phases 0–1 done, phase 2 in progress**. Connectors, schema catalog with column
-profiling, a FastAPI backend, and the Claude agent core (not yet evaluated live). No UI yet.
+profiling, a FastAPI backend, the agent core (Claude or free Gemini), and a Streamlit chat UI.
 
 ## Quick start
 
@@ -24,6 +24,17 @@ Open http://localhost:8000/docs, then:
    `uploads` source.
 5. `POST /sources/olist/ask` with `{"question": "What is our late-delivery rate?"}` asks the
    agent. Needs Claude credentials: `ANTHROPIC_API_KEY` in `.env`.
+
+## Chat UI
+
+```bash
+uv run streamlit run ui/app.py
+```
+
+Opens http://localhost:8501. Ask a question; a live panel shows each step the AI takes, then you
+get the answer, a chart when one fits, the result table, the SQL used, and every step. On the
+free Gemini tier each model allows about 20 requests a day: switch models in the sidebar when
+one runs out.
 
 ## Agent eval
 

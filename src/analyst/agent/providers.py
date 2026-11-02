@@ -252,12 +252,12 @@ def _daily_quota(error: Any) -> str | None:
         return None
     limit = re.search(r'"quotaValue":\s*"(\d+)"', text)
     retry = re.search(r'"retryDelay":\s*"(\d+)s"', text)
-    parts = ["daily free quota used up"]
+    text = "daily free quota used up"
     if limit:
-        parts.append(f"({limit.group(1)} requests/day)")
+        text += f" ({limit.group(1)} requests/day)"
     if retry:
-        parts.append(f"; resets in about {int(retry.group(1)) / 3600:.0f}h")
-    return " ".join(parts)
+        text += f"; resets in about {int(retry.group(1)) / 3600:.0f}h"
+    return text
 
 
 def _message(error: Any) -> str:
