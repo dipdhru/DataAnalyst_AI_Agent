@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.env
+state/
+*.duckdb
+*.duckdb.wal
+.DS_Store
+# Olist data is ~230 MB; see README for how to get it.
+data/olist/
