@@ -1,0 +1,734 @@
+about: Golden question set for the Olist test data. Every agent change is scored against it (phase 2).
+  Each question starts as status 'draft'. Review the question, the SQL and the expected answer, then set
+  status to 'approved' (or fix the SQL, or the definition it relies on). Only approved questions count
+  in the eval. Expected answers are computed by scripts/build_golden.py from the SQL; never edit them
+  by hand.
+dataset: olist
+source: olist
+definitions_status: approved  # approved by the user on 2026-11-02
+definitions:
+  valid_order: An order whose order_status is not 'canceled' or 'unavailable'. Revenue, AOV, repeat customers
+    and seller metrics only count valid orders.
+  revenue: SUM(order_items.price) over valid orders. Excludes freight_value. Not payment_value, which
+    also includes freight, installment interest and vouchers.
+  order_date: orders.order_purchase_timestamp. Months are calendar months of that timestamp.
+  aov: Average order value = revenue / number of distinct valid orders that have items.
+  delivered_order: order_status = 'delivered' and order_delivered_customer_date is not null (8 delivered
+    orders have no delivery date and are left out).
+  late_delivery: A delivered order whose delivery date (day) is after order_estimated_delivery_date (day).
+    Delivered on the estimated day counts as on time. Late rate = late / delivered orders.
+  delivery_days: julianday(order_delivered_customer_date) - julianday(order_purchase_timestamp).
+  customer: A person, identified by customers.customer_unique_id. customers.customer_id is per order,
+    so counting it would count orders, not people.
+  repeat_customer: A customer with 2 or more distinct valid orders.
+  category: English name from product_category_name_translation; falls back to the Portuguese name (2
+    categories have no translation), then 'unknown' (610 products have no category).
+  active_seller: A seller with at least one item in a valid order.
+  lead_conversion: Closed deals (leads_closed) / marketing-qualified leads (leads_qualified).
+data_notes:
+- Orders run from 2016-09 to 2018-10. 2016 and 2018-09/10 have very few orders, so full-year comparisons
+  use 2017 and same-period comparisons use January to August.
+- 775 orders have no items (mostly unavailable/canceled); they contribute no revenue.
+- 547 orders have more than one review; review averages are per review, not per order.
+questions:
+- id: rev_total
+  category: revenue
+  difficulty: easy
+  status: draft
+  question: What is our total revenue?
+  uses:
+  - revenue
+  - valid_order
+  pitfalls: Using payment_value, or adding freight, or including canceled orders.
+  sql: |
+    SELECT ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  expected:
+    columns:
+    - revenue
+    rows:
+    - - 13494400.74
+- id: rev_top_categories
+  category: revenue
+  difficulty: medium
+  status: draft
+  question: What are the top 5 product categories by revenue?
+  uses:
+  - revenue
+  - category
+  pitfalls: Showing Portuguese names; dropping products whose category has no translation.
+  sql: |
+    SELECT COALESCE(t.product_category_name_english, p.product_category_name, 'unknown')
+             AS category,
+           ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    LEFT JOIN products p ON p.product_id = oi.product_id
+    LEFT JOIN product_category_name_translation t
+      ON t.product_category_name = p.product_category_name
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1
+    ORDER BY revenue DESC
+    LIMIT 5
+  expected:
+    columns:
+    - category
+    - revenue
+    rows:
+    - - health_beauty
+      - 1255695.13
+    - - watches_gifts
+      - 1198185.21
+    - - bed_bath_table
+      - 1035964.06
+    - - sports_leisure
+      - 979740.92
+    - - computers_accessories
+      - 904322.02
+- id: rev_monthly_2017
+  category: revenue
+  difficulty: medium
+  status: draft
+  question: Show monthly revenue for 2017.
+  uses:
+  - revenue
+  - order_date
+  sql: |
+    SELECT strftime('%Y-%m', o.order_purchase_timestamp) AS month,
+           ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+      AND o.order_purchase_timestamp >= '2017-01-01'
+      AND o.order_purchase_timestamp < '2018-01-01'
+    GROUP BY 1
+    ORDER BY 1
+  expected:
+    columns:
+    - month
+    - revenue
+    rows:
+    - - 2017-01
+      - 120098.27
+    - - 2017-02
+      - 244959.35
+    - - 2017-03
+      - 368341.32
+    - - 2017-04
+      - 353842.98
+    - - 2017-05
+      - 503159.19
+    - - 2017-06
+      - 429916.61
+    - - 2017-07
+      - 492287.3
+    - - 2017-08
+      - 568245.79
+    - - 2017-09
+      - 621415.91
+    - - 2017-10
+      - 660179.62
+    - - 2017-11
+      - 1003862.14
+    - - 2017-12
+      - 742183.79
+- id: rev_best_month
+  category: revenue
+  difficulty: medium
+  status: draft
+  question: Which month had the highest revenue ever?
+  uses:
+  - revenue
+  - order_date
+  sql: |
+    SELECT strftime('%Y-%m', o.order_purchase_timestamp) AS month,
+           ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1
+    ORDER BY revenue DESC
+    LIMIT 1
+  expected:
+    columns:
+    - month
+    - revenue
+    rows:
+    - - 2017-11
+      - 1003862.14
+- id: rev_aov
+  category: revenue
+  difficulty: easy
+  status: draft
+  question: What is our average order value?
+  uses:
+  - aov
+  - revenue
+  - valid_order
+  pitfalls: Averaging item prices instead of order totals.
+  sql: |
+    SELECT ROUND(SUM(oi.price) / COUNT(DISTINCT o.order_id), 2) AS aov
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  expected:
+    columns:
+    - aov
+    rows:
+    - - 137.42
+- id: rev_growth_2018
+  category: revenue
+  difficulty: hard
+  status: draft
+  question: How did revenue in January to August 2018 compare with the same period of 2017?
+  uses:
+  - revenue
+  - order_date
+  pitfalls: Comparing full years (2018 data stops in October and is sparse after August).
+  sql: |
+    WITH r AS (
+      SELECT SUM(CASE WHEN o.order_purchase_timestamp >= '2017-01-01'
+                       AND o.order_purchase_timestamp < '2017-09-01' THEN oi.price END) AS r17,
+             SUM(CASE WHEN o.order_purchase_timestamp >= '2018-01-01'
+                       AND o.order_purchase_timestamp < '2018-09-01' THEN oi.price END) AS r18
+      FROM order_items oi
+      JOIN orders o ON o.order_id = oi.order_id
+      WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    )
+    SELECT ROUND(r17, 2) AS revenue_2017_jan_aug,
+           ROUND(r18, 2) AS revenue_2018_jan_aug,
+           ROUND(100.0 * (r18 / r17 - 1), 1) AS growth_pct
+    FROM r
+  expected:
+    columns:
+    - revenue_2017_jan_aug
+    - revenue_2018_jan_aug
+    - growth_pct
+    rows:
+    - - 3080850.81
+      - 7341037.41
+      - 138.3
+- id: rev_freight_share
+  category: revenue
+  difficulty: easy
+  status: draft
+  question: How much do customers pay in freight, as a percentage of item revenue?
+  uses:
+  - revenue
+  - valid_order
+  sql: |
+    SELECT ROUND(100.0 * SUM(oi.freight_value) / SUM(oi.price), 1) AS freight_pct_of_revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  expected:
+    columns:
+    - freight_pct_of_revenue
+    rows:
+    - - 16.6
+- id: rev_top_states
+  category: revenue
+  difficulty: medium
+  status: draft
+  question: Which 5 customer states bring in the most revenue?
+  uses:
+  - revenue
+  sql: |
+    SELECT c.customer_state AS state, ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1
+    ORDER BY revenue DESC
+    LIMIT 5
+  expected:
+    columns:
+    - state
+    - revenue
+    rows:
+    - - SP
+      - 5163867.22
+    - - RJ
+      - 1811623.42
+    - - MG
+      - 1573508.2
+    - - RS
+      - 742559.78
+    - - PR
+      - 676883.06
+- id: ord_total
+  category: orders
+  difficulty: easy
+  status: draft
+  question: How many orders have been placed in total?
+  notes: All orders, any status. The agent should say that this includes canceled ones.
+  sql: |
+    SELECT COUNT(*) AS orders FROM orders
+  expected:
+    columns:
+    - orders
+    rows:
+    - - 99441
+- id: ord_cancel_rate
+  category: orders
+  difficulty: easy
+  status: draft
+  question: What percentage of orders are canceled?
+  notes: Status 'canceled' only; 'unavailable' is a separate status.
+  sql: |
+    SELECT ROUND(100.0 * SUM(order_status = 'canceled') / COUNT(*), 2) AS canceled_pct
+    FROM orders
+  expected:
+    columns:
+    - canceled_pct
+    rows:
+    - - 0.63
+- id: del_late_rate
+  category: delivery
+  difficulty: medium
+  status: draft
+  question: What is our late-delivery rate?
+  uses:
+  - delivered_order
+  - late_delivery
+  pitfalls: Comparing timestamps instead of days; including undelivered orders.
+  sql: |
+    SELECT ROUND(100.0 * SUM(date(order_delivered_customer_date)
+                             > date(order_estimated_delivery_date)) / COUNT(*), 2)
+             AS late_pct
+    FROM orders
+    WHERE order_status = 'delivered' AND order_delivered_customer_date IS NOT NULL
+  expected:
+    columns:
+    - late_pct
+    rows:
+    - - 6.77
+- id: del_late_by_state
+  category: delivery
+  difficulty: hard
+  status: draft
+  question: Which 5 states have the worst late-delivery rate (states with at least 500 delivered orders)?
+  uses:
+  - delivered_order
+  - late_delivery
+  sql: |
+    SELECT c.customer_state AS state,
+           COUNT(*) AS delivered_orders,
+           ROUND(100.0 * SUM(date(o.order_delivered_customer_date)
+                             > date(o.order_estimated_delivery_date)) / COUNT(*), 2)
+             AS late_pct
+    FROM orders o
+    JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.order_status = 'delivered' AND o.order_delivered_customer_date IS NOT NULL
+    GROUP BY 1
+    HAVING COUNT(*) >= 500
+    ORDER BY late_pct DESC
+    LIMIT 5
+  expected:
+    columns:
+    - state
+    - delivered_orders
+    - late_pct
+    rows:
+    - - MA
+      - 717
+      - 17.43
+    - - CE
+      - 1279
+      - 13.76
+    - - BA
+      - 3256
+      - 12.16
+    - - RJ
+      - 12350
+      - 12.11
+    - - PA
+      - 946
+      - 11.21
+- id: del_avg_days
+  category: delivery
+  difficulty: medium
+  status: draft
+  question: How many days does delivery take on average?
+  uses:
+  - delivered_order
+  - delivery_days
+  sql: |
+    SELECT ROUND(AVG(julianday(order_delivered_customer_date)
+                     - julianday(order_purchase_timestamp)), 1) AS avg_delivery_days
+    FROM orders
+    WHERE order_status = 'delivered' AND order_delivered_customer_date IS NOT NULL
+  expected:
+    columns:
+    - avg_delivery_days
+    rows:
+    - - 12.6
+- id: del_fastest_state
+  category: delivery
+  difficulty: medium
+  status: draft
+  question: Which state gets the fastest deliveries (states with at least 500 delivered orders)?
+  uses:
+  - delivered_order
+  - delivery_days
+  sql: |
+    SELECT c.customer_state AS state,
+           ROUND(AVG(julianday(o.order_delivered_customer_date)
+                     - julianday(o.order_purchase_timestamp)), 1) AS avg_delivery_days
+    FROM orders o
+    JOIN customers c ON c.customer_id = o.customer_id
+    WHERE o.order_status = 'delivered' AND o.order_delivered_customer_date IS NOT NULL
+    GROUP BY 1
+    HAVING COUNT(*) >= 500
+    ORDER BY avg_delivery_days
+    LIMIT 1
+  expected:
+    columns:
+    - state
+    - avg_delivery_days
+    rows:
+    - - SP
+      - 8.8
+- id: cus_unique
+  category: customers
+  difficulty: medium
+  status: draft
+  question: How many customers do we have?
+  uses:
+  - customer
+  pitfalls: Counting customer_id (99,441, one per order) instead of customer_unique_id.
+  sql: |
+    SELECT COUNT(DISTINCT customer_unique_id) AS customers FROM customers
+  expected:
+    columns:
+    - customers
+    rows:
+    - - 96096
+- id: cus_repeat_share
+  category: customers
+  difficulty: hard
+  status: draft
+  question: What share of customers have ordered more than once?
+  uses:
+  - customer
+  - repeat_customer
+  - valid_order
+  pitfalls: Using customer_id, which makes almost nobody a repeat customer.
+  sql: |
+    WITH per_customer AS (
+      SELECT c.customer_unique_id, COUNT(DISTINCT o.order_id) AS orders
+      FROM orders o
+      JOIN customers c ON c.customer_id = o.customer_id
+      WHERE o.order_status NOT IN ('canceled', 'unavailable')
+      GROUP BY 1
+    )
+    SELECT COUNT(*) AS customers,
+           SUM(orders >= 2) AS repeat_customers,
+           ROUND(100.0 * SUM(orders >= 2) / COUNT(*), 2) AS repeat_pct
+    FROM per_customer
+  expected:
+    columns:
+    - customers
+    - repeat_customers
+    - repeat_pct
+    rows:
+    - - 94990
+      - 2888
+      - 3.04
+- id: cus_top_states
+  category: customers
+  difficulty: easy
+  status: draft
+  question: Which 3 states have the most customers?
+  uses:
+  - customer
+  sql: |
+    SELECT customer_state AS state, COUNT(DISTINCT customer_unique_id) AS customers
+    FROM customers
+    GROUP BY 1
+    ORDER BY customers DESC
+    LIMIT 3
+  expected:
+    columns:
+    - state
+    - customers
+    rows:
+    - - SP
+      - 40302
+    - - RJ
+      - 12384
+    - - MG
+      - 11259
+- id: cus_top_city
+  category: customers
+  difficulty: easy
+  status: draft
+  question: Which city has the most customers?
+  uses:
+  - customer
+  sql: |
+    SELECT customer_city AS city, customer_state AS state,
+           COUNT(DISTINCT customer_unique_id) AS customers
+    FROM customers
+    GROUP BY 1, 2
+    ORDER BY customers DESC
+    LIMIT 1
+  expected:
+    columns:
+    - city
+    - state
+    - customers
+    rows:
+    - - sao paulo
+      - SP
+      - 14984
+- id: sel_active
+  category: sellers
+  difficulty: easy
+  status: draft
+  question: How many active sellers do we have?
+  uses:
+  - active_seller
+  sql: |
+    SELECT COUNT(DISTINCT oi.seller_id) AS active_sellers
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+  expected:
+    columns:
+    - active_sellers
+    rows:
+    - - 3053
+- id: sel_top_revenue
+  category: sellers
+  difficulty: medium
+  status: draft
+  question: Who are our top 5 sellers by revenue, and where are they based?
+  uses:
+  - revenue
+  sql: |
+    SELECT oi.seller_id, s.seller_state AS state, ROUND(SUM(oi.price), 2) AS revenue
+    FROM order_items oi
+    JOIN orders o ON o.order_id = oi.order_id
+    JOIN sellers s ON s.seller_id = oi.seller_id
+    WHERE o.order_status NOT IN ('canceled', 'unavailable')
+    GROUP BY 1, 2
+    ORDER BY revenue DESC
+    LIMIT 5
+  expected:
+    columns:
+    - seller_id
+    - state
+    - revenue
+    rows:
+    - - 4869f7a5dfa277a7dca6462dcf3b52b2
+      - SP
+      - 229237.63
+    - - 53243585a1d6dc2643021fd1853d8905
+      - BA
+      - 222776.05
+    - - 4a3ca9315b744ce9f8e9374361493884
+      - SP
+      - 200326.12
+    - - fa1c13f2614d7b5c4749cbc52fecda94
+      - SP
+      - 192842.13
+    - - 7c67e1448b00f6e969d365cea6b010ab
+      - SP
+      - 187923.89
+- id: rvw_avg_score
+  category: reviews
+  difficulty: easy
+  status: draft
+  question: What is our average review score?
+  sql: |
+    SELECT ROUND(AVG(review_score), 2) AS avg_review_score FROM order_reviews
+  expected:
+    columns:
+    - avg_review_score
+    rows:
+    - - 4.09
+- id: rvw_five_star_share
+  category: reviews
+  difficulty: easy
+  status: draft
+  question: What percentage of reviews are 5 stars?
+  sql: |
+    SELECT ROUND(100.0 * SUM(review_score = 5) / COUNT(*), 1) AS five_star_pct
+    FROM order_reviews
+  expected:
+    columns:
+    - five_star_pct
+    rows:
+    - - 57.8
+- id: rvw_late_vs_on_time
+  category: reviews
+  difficulty: hard
+  status: draft
+  question: Do late deliveries get worse reviews than on-time ones?
+  uses:
+  - delivered_order
+  - late_delivery
+  sql: |
+    SELECT CASE WHEN date(o.order_delivered_customer_date)
+                     > date(o.order_estimated_delivery_date)
+                THEN 'late' ELSE 'on_time' END AS delivery,
+           COUNT(*) AS reviews,
+           ROUND(AVG(r.review_score), 2) AS avg_review_score
+    FROM order_reviews r
+    JOIN orders o ON o.order_id = r.order_id
+    WHERE o.order_status = 'delivered' AND o.order_delivered_customer_date IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
+  expected:
+    columns:
+    - delivery
+    - reviews
+    - avg_review_score
+    rows:
+    - - late
+      - 6409
+      - 2.27
+    - - on_time
+      - 89944
+      - 4.29
+- id: rvw_worst_category
+  category: reviews
+  difficulty: hard
+  status: draft
+  question: Which product category has the lowest average review score (at least 500 reviews)?
+  uses:
+  - category
+  pitfalls: Joining reviews straight to order_items counts a review once per item. Here each review counts
+    once per category in its order.
+  sql: |
+    WITH order_categories AS (
+      SELECT DISTINCT oi.order_id,
+             COALESCE(t.product_category_name_english, p.product_category_name, 'unknown')
+               AS category
+      FROM order_items oi
+      LEFT JOIN products p ON p.product_id = oi.product_id
+      LEFT JOIN product_category_name_translation t
+        ON t.product_category_name = p.product_category_name
+    )
+    SELECT oc.category, COUNT(*) AS reviews, ROUND(AVG(r.review_score), 2) AS avg_review_score
+    FROM order_reviews r
+    JOIN order_categories oc ON oc.order_id = r.order_id
+    GROUP BY 1
+    HAVING COUNT(*) >= 500
+    ORDER BY avg_review_score
+    LIMIT 1
+  expected:
+    columns:
+    - category
+    - reviews
+    - avg_review_score
+    rows:
+    - - office_furniture
+      - 1268
+      - 3.62
+- id: pay_type_share
+  category: payments
+  difficulty: medium
+  status: draft
+  question: How is payment value split across payment methods?
+  sql: |
+    SELECT payment_type,
+           ROUND(SUM(payment_value), 2) AS payment_value,
+           ROUND(100.0 * SUM(payment_value) / (SELECT SUM(payment_value) FROM order_payments), 1)
+             AS share_pct
+    FROM order_payments
+    GROUP BY 1
+    ORDER BY payment_value DESC
+  expected:
+    columns:
+    - payment_type
+    - payment_value
+    - share_pct
+    rows:
+    - - credit_card
+      - 12542084.19
+      - 78.3
+    - - boleto
+      - 2869361.27
+      - 17.9
+    - - voucher
+      - 379436.87
+      - 2.4
+    - - debit_card
+      - 217989.79
+      - 1.4
+    - - not_defined
+      - 0.0
+      - 0.0
+- id: pay_avg_installments
+  category: payments
+  difficulty: easy
+  status: draft
+  question: On average, how many installments do credit card payments use?
+  sql: |
+    SELECT ROUND(AVG(payment_installments), 2) AS avg_installments
+    FROM order_payments
+    WHERE payment_type = 'credit_card'
+  expected:
+    columns:
+    - avg_installments
+    rows:
+    - - 3.51
+- id: mkt_lead_conversion
+  category: marketing
+  difficulty: medium
+  status: draft
+  question: What is our lead-to-seller conversion rate?
+  uses:
+  - lead_conversion
+  sql: |
+    SELECT (SELECT COUNT(*) FROM leads_qualified) AS qualified_leads,
+           (SELECT COUNT(*) FROM leads_closed) AS closed_deals,
+           ROUND(100.0 * (SELECT COUNT(*) FROM leads_closed)
+                 / (SELECT COUNT(*) FROM leads_qualified), 2) AS conversion_pct
+  expected:
+    columns:
+    - qualified_leads
+    - closed_deals
+    - conversion_pct
+    rows:
+    - - 8000
+      - 842
+      - 10.53
+- id: mkt_top_origin
+  category: marketing
+  difficulty: medium
+  status: draft
+  question: Which marketing channel brings in the most closed deals?
+  sql: |
+    SELECT COALESCE(q.origin, 'unknown') AS origin, COUNT(*) AS closed_deals
+    FROM leads_closed c
+    JOIN leads_qualified q ON q.mql_id = c.mql_id
+    GROUP BY 1
+    ORDER BY closed_deals DESC
+    LIMIT 1
+  expected:
+    columns:
+    - origin
+    - closed_deals
+    rows:
+    - - organic_search
+      - 271
+- id: x_profit_margin
+  category: unanswerable
+  difficulty: medium
+  status: draft
+  question: What is our profit margin?
+  expected_behaviour: Say the data has no cost or margin information, so profit can't be computed. Offer
+    revenue instead. Must not invent a margin.
+- id: x_site_traffic
+  category: unanswerable
+  difficulty: easy
+  status: draft
+  question: How many people visited the website last month?
+  expected_behaviour: Say there is no web traffic data. Mention the data ends in October 2018, so "last
+    month" also needs clarifying. Must not return an order count as visitors.
