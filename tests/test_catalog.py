@@ -134,3 +134,68 @@ def test_full_olist_catalog(tmp_path: Path, olist: Path) -> None:
     assert counts["geolocation"] == 1000163
     assert catalog.table("geolocation").columns[0].profile.sampled  # > 1M rows
     assert joins(catalog) == EXPECTED_JOINS
+
+
+# Rules learned from BIRD's schemas, where name matching alone gave dozens of false joins.
+def _col(name: str, *, unique: bool = False, pk: bool = False, rows: int = 100):
+    from analyst.catalog import CatalogColumn, ColumnProfile
+
+    profile = ColumnProfile(
+        row_count=rows, null_count=0, distinct_count=rows if unique else 1, is_unique=unique
+    )
+    return CatalogColumn(name=name, data_type="INTEGER", primary_key=pk, profile=profile)
+
+
+def _table(name: str, *cols, rows: int = 100):
+    from analyst.catalog import CatalogTable
+
+    return CatalogTable(name=name, row_count=rows, columns=list(cols))
+
+
+def _inferred(tables, declared=()):
+    from analyst.catalog.relationships import infer_relationships
+
+    return {
+        (r.from_table, r.from_column, r.to_table, r.to_column)
+        for r in infer_relationships(tables, list(declared))
+    }
+
+
+def test_generic_names_are_never_joined() -> None:
+    tables = [
+        _table("colour", _col("id", unique=True, pk=True), _col("url", unique=True)),
+        _table("race", _col("id", unique=True, pk=True), _col("url", unique=True), rows=200),
+    ]
+    assert _inferred(tables) == set()
+
+
+def test_composite_primary_key_members_are_not_keys() -> None:
+    tables = [
+        _table("races", _col("raceId", unique=True, pk=True)),
+        _table("lapTimes", _col("raceId", pk=True), _col("driverId", pk=True), rows=5000),
+        _table("driverStandings", _col("raceId"), _col("driverId"), rows=3000),
+    ]
+    assert _inferred(tables) == {
+        ("lapTimes", "raceId", "races", "raceId"),
+        ("driverStandings", "raceId", "races", "raceId"),
+    }
+
+
+def test_columns_with_a_declared_fk_get_no_guesses() -> None:
+    from analyst.catalog import Relationship
+
+    tables = [
+        _table("superhero", _col("hero_id", unique=True)),
+        _table("hero_power", _col("hero_id"), rows=500),
+        _table("hero_backup", _col("hero_id", unique=True), rows=50),
+    ]
+    declared = [
+        Relationship(
+            from_table="hero_power",
+            from_column="hero_id",
+            to_table="superhero",
+            to_column="hero_id",
+            origin="declared",
+        )
+    ]
+    assert ("hero_power", "hero_id", "hero_backup", "hero_id") not in _inferred(tables, declared)

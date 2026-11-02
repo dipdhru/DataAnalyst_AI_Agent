@@ -10,3 +10,6 @@ state/
 .DS_Store
 # Olist data is ~230 MB; see README for how to get it.
 data/olist/
+# BIRD Mini-Dev benchmark data; see docs/bird-alignment.md.
+data/bird/
+config.bird.yaml
