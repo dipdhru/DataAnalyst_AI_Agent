@@ -4,8 +4,8 @@ Plug-and-play data analyst chatbot. Connect a database or upload CSV/Excel, ask 
 questions, get answers with SQL, tables and charts. See [build-brief.md](build-brief.md) for
 the full plan.
 
-Current state: **phases 0–1**. Connectors, schema catalog with column profiling, and a FastAPI
-backend. No chat agent or UI yet.
+Current state: **phases 0–1 done, phase 2 in progress**. Connectors, schema catalog with column
+profiling, a FastAPI backend, and the Claude agent core (not yet evaluated live). No UI yet.
 
 ## Quick start
 
@@ -22,6 +22,14 @@ Open http://localhost:8000/docs, then:
 3. `POST /sources/olist/query` with `{"sql": "SELECT ..."}` runs a read-only query.
 4. `POST /uploads` (multipart `file`) turns a CSV/Excel/Parquet file into tables in the
    `uploads` source.
+5. `POST /sources/olist/ask` with `{"question": "What is our late-delivery rate?"}` asks the
+   agent. Needs Claude credentials: `ANTHROPIC_API_KEY` in `.env`.
+
+## Agent eval
+
+`uv run python scripts/run_eval.py` runs the agent on the golden questions in
+`evals/golden.yaml` and scores each answer (calls the Claude API, so it costs money; start with
+`--ids rev_total,del_late_rate`). Results are saved in `evals/runs/`.
 
 ## Olist test data
 

@@ -9,16 +9,21 @@ from analyst.connectors.sql import SqlAlchemyConnector
 
 
 class SourceRegistry:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, only: set[str] | None = None) -> None:
+        """`only` limits which sources are opened. Scripts use it so they don't need the
+        uploads DuckDB file, which a running API server holds locked."""
         self._sources: dict[str, Connector] = {}
         for src in settings.sources:
-            self._sources[src.name] = SqlAlchemyConnector(
-                src.name, src.resolve_url(), limits=settings.query, schemas=src.schemas
+            if only is None or src.name in only:
+                self._sources[src.name] = SqlAlchemyConnector(
+                    src.name, src.resolve_url(), limits=settings.query, schemas=src.schemas
+                )
+        self.uploads: FileConnector | None = None
+        if only is None or settings.uploads.name in only:
+            self.uploads = FileConnector(
+                settings.uploads.name, settings.uploads_db_path, limits=settings.query
             )
-        self.uploads = FileConnector(
-            settings.uploads.name, settings.uploads_db_path, limits=settings.query
-        )
-        self._sources[self.uploads.name] = self.uploads
+            self._sources[self.uploads.name] = self.uploads
 
     def get(self, name: str) -> Connector:
         try:

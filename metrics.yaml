@@ -1,0 +1,58 @@
+# Semantic layer: business definitions the agent must use before inventing its own SQL.
+# Keyed by source name. `sql` fragments are written for that source's dialect.
+# Olist definitions were approved by the user on 2026-11-02 (see evals/golden.yaml).
+
+olist:
+  definitions:
+    valid_order:
+      description: >-
+        An order whose status is not 'canceled' or 'unavailable'. Revenue, AOV, repeat
+        customers and seller metrics only count valid orders.
+      sql: orders.order_status NOT IN ('canceled', 'unavailable')
+    revenue:
+      description: >-
+        Sum of item price over valid orders. Excludes freight_value. Not payment_value, which
+        also includes freight, installment interest and vouchers.
+      sql: SUM(order_items.price)
+    order_date:
+      description: >-
+        orders.order_purchase_timestamp. Months are calendar months of that timestamp.
+      sql: strftime('%Y-%m', orders.order_purchase_timestamp)
+    aov:
+      description: Average order value = revenue / number of distinct valid orders with items.
+      sql: SUM(order_items.price) / COUNT(DISTINCT orders.order_id)
+    delivered_order:
+      description: >-
+        order_status = 'delivered' and order_delivered_customer_date is not null.
+      sql: >-
+        orders.order_status = 'delivered' AND orders.order_delivered_customer_date IS NOT NULL
+    late_delivery:
+      description: >-
+        A delivered order whose delivery day is after the estimated delivery day. Delivered on
+        the estimated day counts as on time. Late rate = late / delivered orders.
+      sql: date(orders.order_delivered_customer_date) > date(orders.order_estimated_delivery_date)
+    delivery_days:
+      description: Days from purchase to delivery to the customer.
+      sql: julianday(orders.order_delivered_customer_date) - julianday(orders.order_purchase_timestamp)
+    customer:
+      description: >-
+        A person, identified by customers.customer_unique_id. customers.customer_id is one per
+        order, so counting it counts orders, not people.
+      sql: COUNT(DISTINCT customers.customer_unique_id)
+    repeat_customer:
+      description: A customer with 2 or more distinct valid orders.
+    category:
+      description: >-
+        English name from product_category_name_translation, falling back to the Portuguese
+        name, then 'unknown'.
+      sql: >-
+        COALESCE(product_category_name_translation.product_category_name_english,
+        products.product_category_name, 'unknown')
+    active_seller:
+      description: A seller with at least one item in a valid order.
+    lead_conversion:
+      description: Closed deals (leads_closed) / marketing-qualified leads (leads_qualified).
+  notes:
+    - Orders run from 2016-09 to 2018-10. 2016 and 2018-09/10 have very few orders, so
+      compare full years with 2017 and same periods with January to August.
+    - The data has no costs, margins, web traffic or marketing spend.
