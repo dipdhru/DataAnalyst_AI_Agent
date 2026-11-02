@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "chat-ui",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "streamlit", "run", "ui/app.py", "--server.headless", "true", "--server.port", "8501"],
+      "port": 8501
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "uvicorn", "analyst.api.app:app", "--port", "8000"],
+      "port": 8000
+    }
+  ]
+}

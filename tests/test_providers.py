@@ -162,7 +162,7 @@ def test_daily_quota_is_not_retried() -> None:
     with pytest.raises(
         ProviderError,
         match=r"daily free quota used up \(20 requests/day\)"
-        r" ; resets in about 13h",
+        r"; resets in about 13h",
     ):
         client.beta.messages.create(
             model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]

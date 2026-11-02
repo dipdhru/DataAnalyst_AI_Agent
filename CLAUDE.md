@@ -11,7 +11,9 @@ read it before starting a new phase.
   endpoint) and tested offline with a scripted fake model; not yet run against the live API.
   Golden questions: Claude may draft questions, SQL and answers, but an expected answer only
   counts once the user has approved it (definitions are approved; questions are still draft).
-- Not yet: UI (Streamlit, phase 3), memory, briefing, auth. Don't build ahead of the phase.
+- Phase 3 started: Streamlit chat UI with live steps, charts, table and SQL. Not yet: uploads
+  and catalog editing in the UI.
+- Not yet: memory (phase 4), briefing (5), auth (6). Don't build ahead of the phase.
 
 ### Deferred on purpose
 - LLM-written table/column descriptions: still to do in phase 2. The store already supports
@@ -33,7 +35,8 @@ docker compose up --build
 uv run python scripts/build_golden.py     # recompute golden answers (--check: verify only)
 uv run python scripts/setup_bird.py       # unpack BIRD Mini-Dev into data/bird (see docs/)
 uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 min)
-uv run python scripts/run_eval.py --ids rev_total   # live agent eval: calls Claude, costs money
+uv run python scripts/run_eval.py --resume  # live eval, resumes daily on the free tier
+uv run streamlit run ui/app.py            # chat UI on http://localhost:8501
 ```
 
 Before calling a change done: tests and ruff both pass.
@@ -64,7 +67,9 @@ src/analyst/
   evals/
     scoring.py       answer_match (tolerant) and execution_match (BIRD EX)
     runner.py        runs the agent over golden questions; cost per question
+  charts.py          picks a Plotly chart (metric / line / bar) from a result table's shape
   api/app.py         FastAPI routes; create_app(settings, llm_client) for tests
+ui/app.py            Streamlit chat UI (calls the agent in-process; tests: tests/test_ui.py)
 tests/               pytest, against Olist in data/olist/; fake_claude.py scripts the model
 evals/golden.yaml    golden questions: definitions, SQL, expected answers, draft/approved status
 docs/bird-alignment.md   plan for scoring the agent on the BIRD text-to-SQL benchmark
