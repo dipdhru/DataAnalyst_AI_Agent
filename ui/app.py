@@ -49,7 +49,6 @@ st.set_page_config(page_title="DataAnalyst Agent", page_icon=":bar_chart:", layo
 @st.cache_resource(show_spinner=False)
 def backend(config_path: str, source: str) -> dict[str, Any]:
     settings = load_settings(config_path)
-    # Only this source: the API server may hold the uploads database open.
     registry = SourceRegistry(settings, only={source})
     service = CatalogService(registry, CatalogStore(settings.app_db_path), settings.profiling)
     return {

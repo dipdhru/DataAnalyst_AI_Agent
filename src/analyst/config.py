@@ -28,11 +28,6 @@ class ProfilingSettings(BaseModel):
     timeout_seconds: float = 120.0
 
 
-class UploadsConfig(BaseModel):
-    name: str = "uploads"
-    max_upload_mb: int = 200
-
-
 class AgentSettings(BaseModel):
     # "anthropic": Claude through the Anthropic SDK. "openai_compatible": any provider with an
     # OpenAI-style chat API (Gemini, Groq, OpenRouter, Ollama), set by base_url + api_key_env.
@@ -77,14 +72,13 @@ class Settings(BaseModel):
     state_dir: Path = Path("state")
     query: QueryLimits = Field(default_factory=QueryLimits)
     profiling: ProfilingSettings = Field(default_factory=ProfilingSettings)
-    uploads: UploadsConfig = Field(default_factory=UploadsConfig)
     agent: AgentSettings = Field(default_factory=AgentSettings)
     metrics_path: Path = Path("metrics.yaml")
     sources: list[SourceConfig] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _unique_names(self) -> Settings:
-        names = [s.name for s in self.sources] + [self.uploads.name]
+        names = [s.name for s in self.sources]
         dupes = {n for n in names if names.count(n) > 1}
         if dupes:
             raise ValueError(f"duplicate source names: {sorted(dupes)}")
@@ -93,14 +87,6 @@ class Settings(BaseModel):
     @property
     def app_db_path(self) -> Path:
         return self.state_dir / "app.db"
-
-    @property
-    def uploads_db_path(self) -> Path:
-        return self.state_dir / "uploads.duckdb"
-
-    @property
-    def uploads_raw_dir(self) -> Path:
-        return self.state_dir / "uploads"
 
 
 def load_settings(path: str | Path | None = None) -> Settings:

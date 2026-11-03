@@ -5,15 +5,17 @@ read it before starting a new phase.
 
 ## Status
 
-- Done: phase 0 (scaffold) and phase 1 (connectors, DuckDB file ingestion, schema catalog with
-  column profiling, FastAPI endpoints).
+- Done: phase 0 (scaffold) and phase 1 (SQL connectors, schema catalog with column profiling,
+  FastAPI endpoints).
 - Phase 2 in progress: agent core built (tool loop, semantic layer, eval runner, `/ask`
   endpoint) and tested offline with a scripted fake model; not yet run against the live API.
   Golden questions: Claude may draft questions, SQL and answers, but an expected answer only
   counts once the user has approved it (definitions are approved; questions are still draft).
-- Phase 3 started: Streamlit chat UI with live steps, charts, table and SQL. Not yet: uploads
-  and catalog editing in the UI.
-- Not yet: memory (phase 4), briefing (5), auth (6). Don't build ahead of the phase.
+- Phase 3 started: Streamlit chat UI with live steps, charts, table and SQL. Not yet: catalog
+  editing in the UI.
+- Not yet: memory (phase 4), MongoDB (5), auth (6). Don't build ahead of the phase.
+- Out of scope (user decision 2026-11-03): CSV/Excel uploads and the daily briefing. Both were
+  removed; don't add them back unless the user asks.
 
 ### Deferred on purpose
 - LLM-written table/column descriptions: still to do in phase 2. The store already supports
@@ -51,7 +53,6 @@ src/analyst/
   connectors/
     base.py          Connector ABC: get_schema(), run_query(); subclasses implement _introspect/_execute
     sql.py           SQLAlchemy connector (SQLite read-only URI, Postgres read-only session)
-    files.py         DuckDB connector for uploaded CSV/TSV/Excel/Parquet, one table per file/sheet
     registry.py      builds all configured connectors; looks them up by name
   catalog/
     profiler.py      column profiles with portable aggregate SQL (nulls, distinct, min/max, samples)
@@ -91,18 +92,17 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
   row limit, enforces the timeout and converts values to JSON-safe types. Never call a
   connector's `_execute` or a raw engine from new code, including the profiler and the agent.
   The one exception is tests that deliberately bypass the guard to prove the connection-level
-  defences hold (read-only SQLite, DuckDB file access blocked).
+  defences hold (read-only SQLite).
 - **Read-only, two layers.** The connection is read-only (SQLite `mode=ro`, Postgres
-  `TRANSACTION READ ONLY`, DuckDB `enable_external_access=False`), and `sql_guard` rejects
-  anything that isn't a single SELECT. Keep both; neither is enough alone.
-- **DuckDB never reads files from SQL.** Ingestion reads files on a separate in-memory staging
-  connection and hands over Arrow tables. Don't enable external access on the main connection.
+  `TRANSACTION READ ONLY`), and `sql_guard` rejects anything that isn't a single SELECT. Keep
+  both; neither is enough alone. MongoDB (phase 5) needs the same two layers: a read-only user
+  and its own guard that allows only read pipeline stages (no `$out`/`$merge`).
 - **New data source = new `Connector` subclass** with `kind`, `dialect` (sqlglot name),
-  `_introspect` and `_execute`. Register it in `SourceRegistry` and `SourceConfig`.
+  `_introspect` and `_execute`. Register it in `SourceRegistry` and `SourceConfig`. MongoDB
+  will not fit the SQL-only parts (sqlglot dialect, `sql_guard`); extend the interface then,
+  not before.
 - **Portable SQL in shared code.** Build identifiers with `sqlglot.exp` and render with the
-  connector's dialect; the same code runs on SQLite, Postgres and DuckDB.
-- **Uploaded names are sanitized** with `sanitize_identifier` (lowercase snake_case). Report
-  renames back to the caller (`IngestResult.renamed_columns`).
+  connector's dialect; the same code runs on SQLite and Postgres.
 - **User edits win.** Descriptions with `description_source="user"` survive catalog refreshes.
   LLM-written ones (phase 2+) use `"llm"` and must never overwrite user ones.
 - **Config:** settings in `config.yaml`, secrets only in `.env` (referenced via `url_env`).
@@ -115,16 +115,15 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
 - Ruff (line length 100, rules E F I B UP SIM). Format with `ruff format`.
 - Module docstring saying what the module is for. Comments explain *why*, not *what*.
 - Errors: raise specific exceptions (`UnsafeQueryError`, `QueryError`, `QueryTimeoutError`,
-  `UnsupportedFileError`, `TableExistsError`, `KeyError` for unknown names); map them to HTTP
-  status codes only in `api/app.py`. Current mapping: `UnsafeQueryError` and `QueryError` 400,
-  `QueryTimeoutError` 408, unknown source/table/column 404, `TableExistsError` 409,
-  `UnsupportedFileError` 415, upload over `max_upload_mb` 413.
+  `KeyError` for unknown names); map them to HTTP status codes only in `api/app.py`. Current
+  mapping: `UnsafeQueryError` and `QueryError` 400, `QueryTimeoutError` 408, unknown
+  source/table/column 404, catalog not built yet 409, model provider errors 429/502/503.
 - No new dependency without a reason; add it with `uv add` so `uv.lock` stays in sync.
 
 ## Tests
 
-- Use the fixtures in `tests/conftest.py`: `sample_sqlite` and `sample_csv_dir` are the first
-  2000 rows of each Olist table, `settings` points at a temp `state/`. Tests skip cleanly when
+- Use the fixtures in `tests/conftest.py`: `sample_sqlite` is the first 2000 rows of each
+  Olist table, `settings` points at a temp `state/`. Tests skip cleanly when
   `data/olist/` is missing.
 - Mark anything that needs the full dataset `@pytest.mark.full_olist`.
 - Every guardrail change gets a test that tries to break it (see `tests/test_sql_guard.py`).

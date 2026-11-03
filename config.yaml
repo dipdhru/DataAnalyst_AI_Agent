@@ -1,7 +1,7 @@
 # DataAnalyst Agent configuration. Secrets go in .env, never here.
 # Relative paths resolve against this file's directory.
 
-state_dir: state            # app.db (catalog, later memory) and uploads.duckdb live here
+state_dir: state            # app.db (catalog, later memory) lives here
 
 query:
   default_row_limit: 1000   # rows returned when the caller gives no limit
@@ -26,10 +26,6 @@ agent:
   result_rows_shown: 50     # rows of each query result the model sees
 
 metrics_path: metrics.yaml  # business definitions per source (semantic layer)
-
-uploads:
-  name: uploads             # source name for uploaded CSV/Excel tables
-  max_upload_mb: 200
 
 sources:
   - name: olist

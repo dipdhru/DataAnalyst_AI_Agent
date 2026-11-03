@@ -1,23 +1,19 @@
 [project]
 name = "dataanalyst-agent"
 version = "0.1.0"
-description = "Plug-and-play data analyst chatbot: connect a database or upload files, ask questions, get SQL, tables and charts."
+description = "Plug-and-play data analyst chatbot: connect a SQL database, ask questions, get SQL, tables and charts."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
-    "python-multipart>=0.0.9",
     "pydantic>=2.7",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
-    "duckdb>=1.1",
     "sqlglot>=25.0",
     "pandas>=2.2",
-    "openpyxl>=3.1",
-    "pyarrow>=16.0",
     "anthropic>=1.0",
     "openai>=1.40",
     "streamlit>=1.66.1",

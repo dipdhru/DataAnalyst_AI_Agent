@@ -79,7 +79,6 @@ def write_config(db_ids: set[str]) -> None:
         # Benchmark runs need full results: a capped result would score as wrong.
         "query": {"default_row_limit": 1000, "max_row_limit": 1_000_000, "timeout_seconds": 120},
         "profiling": {"sample_values": 5, "max_rows": 1_000_000, "timeout_seconds": 300},
-        "uploads": {"name": "bird_uploads"},
         "sources": [
             {"name": db, "type": "sqlite", "path": f"data/bird/dev_databases/{db}/{db}.sqlite"}
             for db in sorted(db_ids)

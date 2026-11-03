@@ -15,7 +15,6 @@ from analyst.config import ProfilingSettings, QueryLimits, Settings, SourceConfi
 
 OLIST_DIR = Path(__file__).resolve().parents[1] / "data" / "olist"
 OLIST_SQLITE = OLIST_DIR / "olist.sqlite"
-OLIST_CSV_DIR = OLIST_DIR / "csv"
 SAMPLE_ROWS = 2000
 
 
@@ -53,17 +52,6 @@ def sample_sqlite(olist: Path, tmp_path_factory: pytest.TempPathFactory) -> Path
     con.execute("DETACH DATABASE full")
     con.close()
     return path
-
-
-@pytest.fixture(scope="session")
-def sample_csv_dir(olist: Path, tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """The Olist CSVs cut to their header plus SAMPLE_ROWS lines (byte-for-byte otherwise)."""
-    out = tmp_path_factory.mktemp("olist_csv")
-    for src in sorted(OLIST_CSV_DIR.glob("*.csv")):
-        with src.open("rb") as f:
-            lines = [line for _, line in zip(range(SAMPLE_ROWS + 1), f, strict=False)]
-        (out / src.name).write_bytes(b"".join(lines))
-    return out
 
 
 @pytest.fixture

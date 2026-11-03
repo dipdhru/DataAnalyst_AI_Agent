@@ -1,7 +1,8 @@
 """Validate SQL before it reaches a database: one read-only SELECT over known tables, capped rows.
 
 This is the second line of defence. The first is the connection itself (read-only SQLite URI,
-read-only Postgres transaction, DuckDB with external file access disabled).
+read-only Postgres transaction). File-reading functions of other dialects (DuckDB) stay blocked
+in case such a source is added later.
 """
 
 from __future__ import annotations

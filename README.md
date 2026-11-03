@@ -1,7 +1,7 @@
 # DataAnalyst Agent
 
-Plug-and-play data analyst chatbot. Connect a database or upload CSV/Excel, ask business
-questions, get answers with SQL, tables and charts. See [build-brief.md](build-brief.md) for
+Plug-and-play data analyst chatbot. Connect a SQL database (Postgres or SQLite; MongoDB later),
+ask business questions, get answers with SQL, tables and charts. See [build-brief.md](build-brief.md) for
 the full plan.
 
 Current state: **phases 0–1 done, phase 2 in progress**. Connectors, schema catalog with column
@@ -20,9 +20,7 @@ Open http://localhost:8000/docs, then:
 1. `POST /sources/olist/catalog/refresh` builds the catalog (about 7 s for full Olist).
 2. `GET /sources/olist/catalog` returns tables, column profiles and inferred joins.
 3. `POST /sources/olist/query` with `{"sql": "SELECT ..."}` runs a read-only query.
-4. `POST /uploads` (multipart `file`) turns a CSV/Excel/Parquet file into tables in the
-   `uploads` source.
-5. `POST /sources/olist/ask` with `{"question": "What is our late-delivery rate?"}` asks the
+4. `POST /sources/olist/ask` with `{"question": "What is our late-delivery rate?"}` asks the
    agent. Needs Claude credentials: `ANTHROPIC_API_KEY` in `.env`.
 
 ## Chat UI
@@ -48,7 +46,6 @@ Tests and the default config expect the Olist dataset in `data/olist/`:
 
 ```
 data/olist/olist.sqlite
-data/olist/csv/*.csv     # the 9 Olist CSVs
 ```
 
 It is gitignored (~230 MB). Get it from Kaggle ("Brazilian E-Commerce Public Dataset by Olist"

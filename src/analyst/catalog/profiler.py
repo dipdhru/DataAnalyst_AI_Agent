@@ -1,4 +1,4 @@
-"""Column profiling with plain aggregate SQL, so it works on SQLite, Postgres and DuckDB alike."""
+"""Column profiling with plain aggregate SQL, so it works on SQLite and Postgres alike."""
 
 from __future__ import annotations
 
