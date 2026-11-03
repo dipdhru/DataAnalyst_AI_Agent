@@ -321,3 +321,37 @@ def test_unparseable_output_in_any_wording_is_a_bad_tool_call() -> None:
         client.beta.messages.create(
             model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
         )
+
+
+def _groq_daily_limit(retry: str) -> openai.RateLimitError:
+    error = Exception.__new__(openai.RateLimitError)
+    error.status_code = 429
+    error.message = (
+        "Rate limit reached for model on tokens per day (TPD): Limit 200000, Used 197818, "
+        f"Requested 3077. Please try again in {retry}. Need more tokens?"
+    )
+    error.body = {"error": {"message": error.message}}
+    return error
+
+
+def test_a_rolling_daily_limit_is_waited_out_when_soon() -> None:
+    sleeps: list[float] = []
+    fake = FakeOpenAI(_groq_daily_limit("6m26.5s"), completion(content="ok", finish="stop"))
+    client = OpenAICompatClient(fake, sleep=sleeps.append, max_quota_wait_s=1800)
+    reply = client.beta.messages.create(
+        model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert reply.content[0].text == "ok" and sleeps == [391.5]
+
+    far = FakeOpenAI(_groq_daily_limit("2h10m0s"))
+    client = OpenAICompatClient(far, sleep=sleeps.append, max_quota_wait_s=1800)
+    with pytest.raises(ProviderError, match="daily free quota"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )
+    # Without the setting (Gemini), a daily limit still stops at once.
+    client = OpenAICompatClient(FakeOpenAI(_groq_daily_limit("1m0s")), sleep=sleeps.append)
+    with pytest.raises(ProviderError, match="daily free quota"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )

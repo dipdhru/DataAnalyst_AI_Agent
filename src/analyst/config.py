@@ -38,6 +38,8 @@ class AgentSettings(BaseModel):
     request_timeout_s: float = 60.0  # per model call; local models on a laptop need more
     # OpenAI-compatible providers only: "none" turns a thinking model's reasoning off.
     reasoning_effort: str | None = None
+    # Wait out a daily-limit 429 when the provider says it frees up within this many seconds.
+    max_quota_wait_s: float = 0.0
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
     max_tokens: int = 16_000
