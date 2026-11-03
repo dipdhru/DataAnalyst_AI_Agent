@@ -70,6 +70,7 @@ def make_llm_client(settings: AgentSettings, on_wait: Callable[[str], None] | No
         min_seconds_between_calls=settings.min_seconds_between_calls,
         on_wait=on_wait,
         reasoning_effort=settings.reasoning_effort,
+        max_quota_wait_s=settings.max_quota_wait_s,
     )
 
 
@@ -109,6 +110,8 @@ def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "reasoning_effort": None,
             # Fewer result rows per query keep each request under the 8k-token limit.
             "result_rows_shown": 20,
+            # Groq's daily limit is a rolling window that names a short wait: sit it out.
+            "max_quota_wait_s": 1800.0,
         }
     )
 
@@ -129,9 +132,11 @@ class OpenAICompatClient:
         clock: Any = time.monotonic,
         on_wait: Callable[[str], None] | None = None,
         reasoning_effort: str | None = None,
+        max_quota_wait_s: float = 0.0,
     ) -> None:
         self._openai = openai_client
         self._reasoning_effort = reasoning_effort
+        self._max_quota_wait = max_quota_wait_s
         self._on_wait = on_wait
         self._min_gap = min_seconds_between_calls
         self._sleep, self._clock = sleep, clock
@@ -166,8 +171,8 @@ class OpenAICompatClient:
         with growing pauses; anything else is reported at once."""
         import openai
 
-        bad_tool_calls = 0
-        for attempt in range(self.RATE_LIMIT_RETRIES + 1):
+        bad_tool_calls = quota_waits = attempt = 0
+        while True:
             self._throttle()
             try:
                 return self._openai.chat.completions.create(**request)
@@ -184,7 +189,16 @@ class OpenAICompatClient:
                 if e.status_code != 429 and e.status_code < 500:
                     raise ProviderError(e.status_code, _message(e)) from e
                 daily = _daily_quota(e)
-                if daily:  # retrying can't help, and each retry may count against the quota
+                if daily:
+                    # A rolling daily window (Groq) frees tokens bit by bit and says when to
+                    # try again: wait if that's soon. Otherwise retrying can't help.
+                    wait = _retry_after(e)
+                    if wait is not None and wait <= self._max_quota_wait and quota_waits < 100:
+                        quota_waits += 1
+                        if self._on_wait:
+                            self._on_wait(f"daily token limit; waiting {wait / 60:.0f} min")
+                        self._sleep(wait + 5)
+                        continue
                     raise ProviderError(429, f"{request['model']}: {daily}") from e
                 failure: tuple[int | None, str] = (e.status_code, _message(e))
             except openai.APIConnectionError as e:  # includes timeouts
@@ -192,14 +206,14 @@ class OpenAICompatClient:
             if attempt == self.RATE_LIMIT_RETRIES:
                 status, message = failure
                 raise ProviderError(status, f"gave up after {attempt + 1} tries: {message}")
-            wait = self.RATE_LIMIT_WAIT_S * (attempt + 1)
+            attempt += 1
+            wait = self.RATE_LIMIT_WAIT_S * attempt
             if self._on_wait:
                 self._on_wait(
                     f"provider busy ({failure[1][:70]}); waiting {wait:.0f}s, "
-                    f"retry {attempt + 1}/{self.RATE_LIMIT_RETRIES}"
+                    f"retry {attempt}/{self.RATE_LIMIT_RETRIES}"
                 )
             self._sleep(wait)
-        raise AssertionError("unreachable")
 
     def _throttle(self) -> None:
         now = self._clock()
@@ -340,6 +354,20 @@ def _bad_tool_call(error: Any) -> bool:
         or "could not be parsed" in message
         or "failed to parse tool call" in message
     )
+
+
+def _retry_after(error: Any) -> float | None:
+    """Seconds until a limit frees up, from "try again in 6m26.6s" (Groq) or a retry-after
+    header; None when the provider doesn't say."""
+    match = re.search(r"try again in (?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?", _message(error))
+    if match and any(match.groups()):
+        h, m, sec = (float(g or 0) for g in match.groups())
+        return h * 3600 + m * 60 + sec
+    headers = getattr(getattr(error, "response", None), "headers", None) or {}
+    try:
+        return float(headers.get("retry-after"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _daily_quota(error: Any) -> str | None:
