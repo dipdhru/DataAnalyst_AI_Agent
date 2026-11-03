@@ -11,17 +11,19 @@ read it before starting a new phase.
   endpoint) and tested offline with a scripted fake model; not yet run against the live API.
   Golden questions: Claude may draft questions, SQL and answers, but an expected answer only
   counts once the user has approved it (definitions are approved; questions are still draft).
-- Phase 3 started: Streamlit chat UI with live steps, charts, table and SQL. Not yet: catalog
-  editing in the UI.
-- Not yet: memory (phase 4), MongoDB (5), auth (6). Don't build ahead of the phase.
+- Phase 3 done: Streamlit UI with Chat (live steps, charts, table, SQL, follow-ups, saved
+  conversations), Catalog (edit descriptions, refresh, AI-written gaps) and Memory views.
+- Phase 4 done: memory in `state/app.db` (verified queries, glossary, corrections,
+  conversations), recalled into each question. Only the user writes memory (UI buttons); the
+  agent only reads it. Evals and benchmarks run without memory so scores stay comparable.
+- Not yet: MongoDB (5), auth (6). Don't build ahead of the phase.
 - Out of scope (user decision 2026-11-03): CSV/Excel uploads and the daily briefing. Both were
   removed; don't add them back unless the user asks.
 
 ### Deferred on purpose
-- LLM-written table/column descriptions: still to do in phase 2. The store already supports
-  `description_source="llm"`.
-- Memory tables (conversations, glossary, verified_queries, preferences): phase 4. Put them in
-  `state/app.db` next to the catalog tables.
+- Preferences (from the brief's memory list): not built; nothing needs them yet.
+- Memory recall is word overlap (TF-IDF), not embeddings: no synonyms. Swap in
+  `memory/recall.py` if that becomes the limit.
 - PII masking: phase 6. Until then, column profile `samples` store raw values.
 - Audit log of every query and auth: phase 6.
 
@@ -41,6 +43,7 @@ uv run python scripts/run_eval.py --resume  # live eval, resumes daily on the fr
 uv run python scripts/run_bench.py --sample 20 --resume  # BIRD score, resumes daily
 uv run python scripts/run_bench.py --groq openai/gpt-oss-120b --sample 20 --resume  # free, fast
 uv run python scripts/import_bird_descriptions.py   # BIRD column descriptions -> catalogs
+uv run python scripts/describe_catalog.py --source olist --groq openai/gpt-oss-20b  # fill gaps
 uv run streamlit run ui/app.py            # chat UI on http://localhost:8501
 ```
 
@@ -63,7 +66,11 @@ src/analyst/
     store.py         persists catalogs in state/app.db (SQLite)
     service.py       refresh / edit descriptions; keeps user descriptions across refreshes
     importers.py     dataset-supplied descriptions (BIRD CSVs), stored as description_source="import"
+    describer.py     model-written descriptions for gaps only (description_source="llm")
   semantic.py        metrics.yaml loader: business definitions per source
+  memory/
+    store.py         verified_queries, facts (glossary, corrections), conversations in app.db
+    recall.py        picks memory for a question (TF-IDF), renders it, revalidates after refresh
   agent/
     tools.py         list_tables, describe_table, run_sql, submit_answer (strict schemas)
     prompt.py        system prompt: tables, definitions, rules (stable per source, cached)
@@ -76,7 +83,7 @@ src/analyst/
     campaign.py      multi-day runs: saves each scored question, resumes after a quota stop
   charts.py          picks a Plotly chart (metric / line / bar) from a result table's shape
   api/app.py         FastAPI routes; create_app(settings, llm_client) for tests
-ui/app.py            Streamlit chat UI (calls the agent in-process; tests: tests/test_ui.py)
+ui/app.py            Streamlit UI: Chat, Catalog, Memory views (agent in-process; tests/test_ui.py)
 tests/               pytest, against Olist in data/olist/; fake_claude.py scripts the model
 evals/golden.yaml    golden questions: definitions, SQL, expected answers, draft/approved status
 docs/benchmarks.md       plan for rating the agent on BIRD and Spider; free-tier budget

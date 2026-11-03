@@ -84,10 +84,7 @@ def prompt_for(q: BenchQuestion, *, with_evidence: bool = True) -> str:
 
 def submitted_sql(answer: AgentAnswer) -> str | None:
     """The SQL as the agent wrote it. `answer.sql` carries the guard's added LIMIT."""
-    for step in reversed(answer.steps):
-        if step.tool == "submit_answer" and step.ok:
-            return step.input.get("sql")
-    return None
+    return answer.final_sql
 
 
 def score_bench(
