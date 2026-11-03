@@ -16,6 +16,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from analyst.agent import Agent, AgentAnswer
+from analyst.agent.providers import QuestionFailedError
 from analyst.connectors import Connector, QueryError
 from analyst.evals.runner import EvalResult, cost
 from analyst.evals.scoring import answer_match, execution_match, has_top_level_order_by
@@ -135,7 +136,14 @@ def run_bench(
     for q in questions:
         if on_question:
             on_question(q)
-        answer = make_agent(q.db_id).ask(prompt_for(q, with_evidence=with_evidence))
+        try:
+            answer = make_agent(q.db_id).ask(prompt_for(q, with_evidence=with_evidence))
+        except QuestionFailedError as e:  # a model failure on this question: score it, go on
+            answer = AgentAnswer(
+                question=prompt_for(q, with_evidence=with_evidence),
+                status="error",
+                detail=e.message,
+            )
         ex, soft, reason, harness = score_bench(q, answer, connector_for(q.db_id), row_cap=row_cap)
         result = BenchResult(
             id=q.id,

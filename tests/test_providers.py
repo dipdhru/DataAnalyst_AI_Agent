@@ -11,8 +11,10 @@ import pytest
 
 from analyst.agent import TOOL_DEFINITIONS, Agent
 from analyst.agent.providers import (
+    BadToolCallError,
     OpenAICompatClient,
     ProviderError,
+    RequestTooLargeError,
     groq_settings,
     make_llm_client,
     ollama_settings,
@@ -269,3 +271,53 @@ def test_groq_preset_reads_its_own_key(monkeypatch) -> None:
     assert groq.base_url.startswith("https://api.groq.com/") and groq.min_seconds_between_calls > 0
     with pytest.raises(ProviderError, match="GROQ_API_KEY is not set"):
         make_llm_client(groq)
+
+
+def _bad_tool_call_error() -> openai.BadRequestError:
+    error = Exception.__new__(openai.BadRequestError)
+    error.status_code = 400
+    error.message = "Failed to parse tool call arguments as JSON"
+    error.body = {"error": {"message": error.message, "code": "tool_use_failed"}}
+    return error
+
+
+def test_a_malformed_tool_call_is_asked_again_then_reported() -> None:
+    fake = FakeOpenAI(_bad_tool_call_error(), completion(content="ok", finish="stop"))
+    client = OpenAICompatClient(fake, sleep=lambda _s: None)
+    reply = client.beta.messages.create(
+        model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert reply.content[0].text == "ok"
+
+    always = FakeOpenAI(*[_bad_tool_call_error() for _ in range(3)])
+    client = OpenAICompatClient(always, sleep=lambda _s: None)
+    with pytest.raises(BadToolCallError, match="invalid tool call"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )
+
+
+def test_a_request_over_the_size_limit_is_not_retried() -> None:
+    error = Exception.__new__(openai.APIStatusError)
+    error.status_code = 413
+    error.message = "Request too large for model on tokens per minute (TPM): Limit 8000"
+    error.body = None
+    sleeps: list[float] = []
+    client = OpenAICompatClient(FakeOpenAI(error), sleep=sleeps.append)
+    with pytest.raises(RequestTooLargeError, match="too large"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )
+    assert sleeps == []
+
+
+def test_unparseable_output_in_any_wording_is_a_bad_tool_call() -> None:
+    error = Exception.__new__(openai.BadRequestError)
+    error.status_code = 400
+    error.message = "Parsing failed. The model generated output that could not be parsed."
+    error.body = {"error": {"message": error.message, "failed_generation": "{bad"}}
+    client = OpenAICompatClient(FakeOpenAI(*[error] * 3), sleep=lambda _s: None)
+    with pytest.raises(BadToolCallError):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )

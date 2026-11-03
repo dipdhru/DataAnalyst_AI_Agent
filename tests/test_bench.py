@@ -163,3 +163,24 @@ def test_predictions_use_birds_format(olist_env) -> None:
         "2": "SELECT 0\t----- bird -----\tolist",
         "10": f"{sql}\t----- bird -----\tolist",
     }
+
+
+class BadToolCalls:
+    """A client whose model only ever writes unparseable tool calls."""
+
+    def __init__(self) -> None:
+        from types import SimpleNamespace
+
+        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
+
+    def _create(self, **_kwargs):
+        from analyst.agent.providers import BadToolCallError
+
+        raise BadToolCallError("Failed to parse tool call arguments as JSON")
+
+
+def test_a_question_with_broken_tool_calls_fails_and_the_run_goes_on(olist_env) -> None:
+    sql = "SELECT COUNT(*) FROM orders"
+    results = bench(olist_env, [q("1", sql), q("2", sql)], [BadToolCalls(), submits(sql)])
+    assert [r.passed for r in results] == [False, True]
+    assert "invalid tool call" in results[0].reason
