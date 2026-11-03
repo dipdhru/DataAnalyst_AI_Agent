@@ -26,6 +26,25 @@ class ProviderError(RuntimeError):
         self.message = message
 
 
+class QuestionFailedError(ProviderError):
+    """The provider can't go on with this one question (the model's fault or its size), but
+    the next question may be fine: an eval run scores it as failed and carries on."""
+
+
+class BadToolCallError(QuestionFailedError):
+    """The model kept writing tool calls the provider couldn't parse."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(400, f"model wrote an invalid tool call: {message}")
+
+
+class RequestTooLargeError(QuestionFailedError):
+    """The conversation outgrew the provider's per-request size limit (Groq free plan: 8k)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(413, f"conversation too large for the provider: {message}")
+
+
 def make_llm_client(settings: AgentSettings, on_wait: Callable[[str], None] | None = None) -> Any:
     """`on_wait` is told when a busy provider makes us pause (for progress output)."""
     if settings.provider == "anthropic":
@@ -88,6 +107,8 @@ def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "min_seconds_between_calls": 10.0,
             "request_timeout_s": 120.0,
             "reasoning_effort": None,
+            # Fewer result rows per query keep each request under the 8k-token limit.
+            "result_rows_shown": 20,
         }
     )
 
@@ -97,6 +118,7 @@ class OpenAICompatClient:
 
     RATE_LIMIT_RETRIES = 5
     RATE_LIMIT_WAIT_S = 20.0
+    BAD_TOOL_CALL_RETRIES = 2
 
     def __init__(
         self,
@@ -144,11 +166,21 @@ class OpenAICompatClient:
         with growing pauses; anything else is reported at once."""
         import openai
 
+        bad_tool_calls = 0
         for attempt in range(self.RATE_LIMIT_RETRIES + 1):
             self._throttle()
             try:
                 return self._openai.chat.completions.create(**request)
             except openai.APIStatusError as e:
+                if _bad_tool_call(e):
+                    # The model wrote a malformed tool call (Groq rejects it with a 400).
+                    # Sampling again usually works; after that it's the model's answer.
+                    bad_tool_calls += 1
+                    if bad_tool_calls > self.BAD_TOOL_CALL_RETRIES:
+                        raise BadToolCallError(_message(e)) from e
+                    continue
+                if e.status_code == 413:  # the same request will never fit
+                    raise RequestTooLargeError(_message(e)[:160]) from e
                 if e.status_code != 429 and e.status_code < 500:
                     raise ProviderError(e.status_code, _message(e)) from e
                 daily = _daily_quota(e)
@@ -290,6 +322,24 @@ def from_openai_response(response: Any) -> SimpleNamespace:
 
 def _get(block: Any, key: str) -> Any:
     return block.get(key) if isinstance(block, dict) else getattr(block, key, None)
+
+
+def _bad_tool_call(error: Any) -> bool:
+    body = getattr(error, "body", None)
+    if isinstance(body, list) and body:
+        body = body[0]
+    detail = body.get("error", body) if isinstance(body, dict) else {}
+    if error.status_code != 400 or not isinstance(detail, dict):
+        return False
+    # Groq rejects unparseable model output with a 400 and echoes it back as failed_generation,
+    # under codes such as tool_use_failed or output_parse_failed.
+    message = str(detail.get("message", "")).lower()
+    return (
+        "failed_generation" in detail
+        or detail.get("code") in {"tool_use_failed", "output_parse_failed"}
+        or "could not be parsed" in message
+        or "failed to parse tool call" in message
+    )
 
 
 def _daily_quota(error: Any) -> str | None:

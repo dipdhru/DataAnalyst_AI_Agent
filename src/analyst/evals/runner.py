@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from analyst.agent import Agent, AgentAnswer
+from analyst.agent.providers import QuestionFailedError
 from analyst.evals.scoring import answer_match, has_top_level_order_by
 
 # $ per million tokens: input, output, cache read, cache write (5-minute TTL).
@@ -70,7 +71,10 @@ def run_eval(
     for q in questions:
         if on_question:
             on_question(q)
-        answer = make_agent().ask(q["question"])
+        try:
+            answer = make_agent().ask(q["question"])
+        except QuestionFailedError as e:  # a model failure on this question: score it, go on
+            answer = AgentAnswer(question=q["question"], status="error", detail=e.message)
         passed, reason = score(q, answer)
         result = EvalResult(
             id=q["id"],
