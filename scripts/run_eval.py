@@ -7,6 +7,8 @@ tier (Gemini) it is rate-limited instead.
     uv run python scripts/run_eval.py                                 # every question
     uv run python scripts/run_eval.py --status approved               # approved only
     uv run python scripts/run_eval.py --provider anthropic --model claude-haiku-5-5
+    uv run python scripts/run_eval.py --ollama qwen3:4b     # local model: free, no quota
+    uv run python scripts/run_eval.py --groq openai/gpt-oss-120b   # Groq free plan
     uv run python scripts/run_eval.py --resume    # free tier: run daily until all are done
 
 --resume keeps progress in evals/runs/campaign-<model>.json. Each run asks only the questions
@@ -28,7 +30,12 @@ import anthropic
 import yaml
 
 from analyst.agent import Agent, ToolCall
-from analyst.agent.providers import ProviderError, make_llm_client
+from analyst.agent.providers import (
+    ProviderError,
+    groq_settings,
+    make_llm_client,
+    ollama_settings,
+)
 from analyst.catalog import CatalogService, CatalogStore
 from analyst.config import load_settings
 from analyst.connectors import SourceRegistry
@@ -50,6 +57,8 @@ def main() -> int:
         help="override agent.provider from config.yaml",
     )
     parser.add_argument("--model", help="override agent.model from config.yaml")
+    parser.add_argument("--ollama", metavar="MODEL", help="use a local Ollama model")
+    parser.add_argument("--groq", metavar="MODEL", help="use Groq (GROQ_API_KEY in .env)")
     parser.add_argument(
         "--effort",
         choices=["low", "medium", "high", "xhigh", "max"],
@@ -87,6 +96,10 @@ def main() -> int:
         settings.agent.provider = args.provider
     if args.model:
         settings.agent.model = args.model
+    if args.groq:
+        settings.agent = groq_settings(settings.agent, args.groq)
+    if args.ollama:
+        settings.agent = ollama_settings(settings.agent, args.ollama)
     if args.effort:
         settings.agent.effort = args.effort
     out_dir = ROOT / "evals" / "runs"

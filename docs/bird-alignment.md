@@ -5,7 +5,9 @@ for the job our agent does: question in, SQL out, judged by executing it. Runnin
 BIRD gives a number we can compare with published systems. Our own Olist golden set
 (`evals/golden.yaml`) stays the product eval, because it checks *our* definitions.
 
-Status: step 1 done (2026-11-02). Steps 2 to 5 not started.
+Status: step 1 done (2026-11-02). Runner for step 4 built (2026-11-03, `scripts/run_bench.py`;
+gold SQL submitted as the prediction scores 20/20 on the default sample); no agent score yet.
+Steps 2, 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
 
 ## Step 1 results
 

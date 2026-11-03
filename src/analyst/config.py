@@ -35,6 +35,9 @@ class AgentSettings(BaseModel):
     base_url: str | None = None
     api_key_env: str | None = None
     min_seconds_between_calls: float = 0.0  # throttle for free tiers' requests-per-minute
+    request_timeout_s: float = 60.0  # per model call; local models on a laptop need more
+    # OpenAI-compatible providers only: "none" turns a thinking model's reasoning off.
+    reasoning_effort: str | None = None
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
     max_tokens: int = 16_000

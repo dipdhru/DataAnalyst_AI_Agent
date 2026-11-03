@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -20,8 +21,17 @@ class CampaignMismatchError(ValueError):
 
 
 class Campaign:
-    def __init__(self, path: Path, *, model: str, provider: str) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        model: str,
+        provider: str,
+        result_type: type[EvalResult] = EvalResult,
+    ) -> None:
+        """`result_type` reads saved results back (BenchResult for benchmark runs)."""
         self.path = path
+        self.result_type = result_type
         if path.exists():
             self.data: dict[str, Any] = json.loads(path.read_text())
             if self.data["model"] != model:
@@ -37,8 +47,9 @@ class Campaign:
                 "results": {},
             }
 
-    def remaining(self, questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [q for q in questions if q["id"] not in self.data["results"]]
+    def remaining(self, questions: list[Any]) -> list[Any]:
+        """Questions not scored yet: golden dicts or objects with an `id`."""
+        return [q for q in questions if _id(q) not in self.data["results"]]
 
     def add(self, result: EvalResult) -> None:
         self.data["results"][result.id] = result.model_dump(mode="json")
@@ -49,8 +60,17 @@ class Campaign:
         tmp.replace(self.path)  # never leave a half-written file behind
 
     def results(self) -> list[EvalResult]:
-        return [EvalResult.model_validate(r) for r in self.data["results"].values()]
+        return [self.result_type.model_validate(r) for r in self.data["results"].values()]
+
+
+def _id(question: Any) -> str:
+    return question["id"] if isinstance(question, dict) else question.id
+
+
+def file_tag(model: str) -> str:
+    """A model name made safe for a file name ("openai/gpt-oss-120b" has a slash)."""
+    return re.sub(r"[^A-Za-z0-9._-]+", "-", model)
 
 
 def campaign_path(runs_dir: Path, model: str) -> Path:
-    return runs_dir / f"campaign-{model}.json"
+    return runs_dir / f"campaign-{file_tag(model)}.json"

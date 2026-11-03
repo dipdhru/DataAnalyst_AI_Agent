@@ -38,6 +38,8 @@ uv run python scripts/build_golden.py     # recompute golden answers (--check: v
 uv run python scripts/setup_bird.py       # unpack BIRD Mini-Dev into data/bird (see docs/)
 uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 min)
 uv run python scripts/run_eval.py --resume  # live eval, resumes daily on the free tier
+uv run python scripts/run_bench.py --sample 20 --resume  # BIRD score, resumes daily
+uv run python scripts/run_bench.py --groq openai/gpt-oss-120b --sample 20 --resume  # free, fast
 uv run streamlit run ui/app.py            # chat UI on http://localhost:8501
 ```
 
@@ -68,12 +70,15 @@ src/analyst/
   evals/
     scoring.py       answer_match (tolerant) and execution_match (BIRD EX)
     runner.py        runs the agent over golden questions; cost per question
+    bench.py         public benchmarks (BIRD): fixed sample, EX on full results, harness errors apart
+    campaign.py      multi-day runs: saves each scored question, resumes after a quota stop
   charts.py          picks a Plotly chart (metric / line / bar) from a result table's shape
   api/app.py         FastAPI routes; create_app(settings, llm_client) for tests
 ui/app.py            Streamlit chat UI (calls the agent in-process; tests: tests/test_ui.py)
 tests/               pytest, against Olist in data/olist/; fake_claude.py scripts the model
 evals/golden.yaml    golden questions: definitions, SQL, expected answers, draft/approved status
-docs/bird-alignment.md   plan for scoring the agent on the BIRD text-to-SQL benchmark
+docs/benchmarks.md       plan for rating the agent on BIRD and Spider; free-tier budget
+docs/bird-alignment.md   BIRD details: what distorts a score, step-by-step status
 scripts/build_golden.py  computes expected answers from the SQL; never hand-edit them
 ```
 
@@ -83,7 +88,9 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
   (`scripts/run_eval.py`) cost money: only run them when the user asks.
 - **Providers:** `agent.provider` in `config.yaml`. The loop speaks the Anthropic Messages
   shape; `providers.OpenAICompatClient` translates for Gemini/Groq/OpenRouter/Ollama (free
-  tiers, used while the user doesn't want to spend). Keep the loop provider-neutral.
+  tiers, used while the user doesn't want to spend). Presets: `groq_settings` (Groq free
+  plan, best free option for benchmarks) and `ollama_settings` (local; too slow on the user's
+  8 GB M1 for the agent). Keep the loop provider-neutral.
 - **Claude API usage:** model and effort come from `config.yaml` (`agent:`). No forced
   `tool_choice` (400 on Opus 5.5); tools use `strict: true`; history is append-only (append the
   full `response.content`); refusals use server-side `fallbacks: "default"`.

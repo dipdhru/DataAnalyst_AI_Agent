@@ -13,7 +13,7 @@ from analyst.agent.providers import ProviderError
 from analyst.catalog import CatalogService, CatalogStore
 from analyst.config import Settings
 from analyst.connectors import SourceRegistry
-from analyst.evals.campaign import Campaign, CampaignMismatchError
+from analyst.evals.campaign import Campaign, CampaignMismatchError, campaign_path
 from analyst.evals.runner import run_eval
 
 QUESTIONS = [
@@ -132,3 +132,8 @@ def test_models_are_never_mixed_in_one_campaign(tmp_path: Path, olist_env) -> No
     )
     with pytest.raises(CampaignMismatchError, match="started with m"):
         Campaign(path, model="other-model", provider="p")
+
+
+def test_model_names_with_slashes_make_one_file(tmp_path: Path) -> None:
+    path = campaign_path(tmp_path, "openai/gpt-oss-120b")
+    assert path.parent == tmp_path and path.name == "campaign-openai-gpt-oss-120b.json"
