@@ -55,9 +55,11 @@ about 4 to 6 model calls. That is **3 to 5 questions a day**. So:
    question (question + evidence), re-runs its SQL, scores EX and answer match, saves progress
    daily and writes predictions in the official BIRD format.
 3. Next: first score on 20 questions, then 50. Report EX overall, per difficulty, per database.
-4. Next: import `database_description/*.csv` into the catalog (`description_source="import"`)
-   and compare: with/without descriptions, with/without evidence (`--no-evidence`). These four
-   numbers show what our catalog and semantic layer add.
+4. Done: `scripts/import_bird_descriptions.py` loads `database_description/*.csv` into the
+   catalog (`description_source="import"`, 620 of 798 columns). Runs are now tagged `-desc` or
+   `-nodesc` (`--no-descriptions`); the first run (9/15 EX) is the `-nodesc` baseline. Next:
+   the same sample with descriptions, then `--no-evidence`. These numbers show what our catalog
+   and semantic layer add.
 5. Later: check our EX against the official `evaluation.py` on our predictions file.
 
 ### Spider 1.0 (after the first BIRD score)

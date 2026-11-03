@@ -40,6 +40,7 @@ uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 
 uv run python scripts/run_eval.py --resume  # live eval, resumes daily on the free tier
 uv run python scripts/run_bench.py --sample 20 --resume  # BIRD score, resumes daily
 uv run python scripts/run_bench.py --groq openai/gpt-oss-120b --sample 20 --resume  # free, fast
+uv run python scripts/import_bird_descriptions.py   # BIRD column descriptions -> catalogs
 uv run streamlit run ui/app.py            # chat UI on http://localhost:8501
 ```
 
@@ -61,6 +62,7 @@ src/analyst/
     relationships.py infers joins the DB doesn't declare (Olist declares none)
     store.py         persists catalogs in state/app.db (SQLite)
     service.py       refresh / edit descriptions; keeps user descriptions across refreshes
+    importers.py     dataset-supplied descriptions (BIRD CSVs), stored as description_source="import"
   semantic.py        metrics.yaml loader: business definitions per source
   agent/
     tools.py         list_tables, describe_table, run_sql, submit_answer (strict schemas)
@@ -111,7 +113,8 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
 - **Portable SQL in shared code.** Build identifiers with `sqlglot.exp` and render with the
   connector's dialect; the same code runs on SQLite and Postgres.
 - **User edits win.** Descriptions with `description_source="user"` survive catalog refreshes.
-  LLM-written ones (phase 2+) use `"llm"` and must never overwrite user ones.
+  Imported ones (`"import"`, e.g. BIRD's CSVs) and LLM-written ones (`"llm"`) must never
+  overwrite user ones.
 - **Config:** settings in `config.yaml`, secrets only in `.env` (referenced via `url_env`).
   Relative paths resolve against the config file's directory. Runtime state goes in `state/`.
 

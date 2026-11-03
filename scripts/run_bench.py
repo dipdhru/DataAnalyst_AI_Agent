@@ -3,6 +3,7 @@
     uv run python scripts/run_bench.py --sample 20 --resume       # free tier: run daily
     uv run python scripts/run_bench.py --sample 50 --resume       # grow the same run to 50
     uv run python scripts/run_bench.py --sample 20 --resume --no-evidence   # ablation
+    uv run python scripts/run_bench.py --sample 20 --resume --no-descriptions   # ablation
     uv run python scripts/run_bench.py --ids 0,7 --provider anthropic --model claude-haiku-5-5
     uv run python scripts/run_bench.py --ollama qwen3:4b     # local model: free, no quota
     uv run python scripts/run_bench.py --groq openai/gpt-oss-120b   # Groq free plan
@@ -31,6 +32,7 @@ from analyst.agent.providers import (
     ollama_settings,
 )
 from analyst.catalog import Catalog, CatalogService, CatalogStore
+from analyst.catalog.importers import without_imported
 from analyst.config import load_settings
 from analyst.connectors import SourceRegistry
 from analyst.evals.bench import (
@@ -56,6 +58,11 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=0, help="sample seed (keep it fixed)")
     parser.add_argument("--ids", help="comma-separated question ids instead of a sample")
     parser.add_argument("--no-evidence", action="store_true", help="hide BIRD's hints")
+    parser.add_argument(
+        "--no-descriptions",
+        action="store_true",
+        help="hide column descriptions imported from BIRD (scripts/import_bird_descriptions.py)",
+    )
     parser.add_argument("--provider", choices=["anthropic", "openai_compatible"])
     parser.add_argument("--model", help="override agent.model from config.yaml")
     parser.add_argument("--ollama", metavar="MODEL", help="use a local Ollama model")
@@ -98,6 +105,7 @@ def main() -> int:
     bird = load_settings(BIRD_CONFIG)
     row_cap = bird.query.max_row_limit
     variant = "noevidence" if args.no_evidence else "evidence"
+    variant += "-nodesc" if args.no_descriptions else "-desc"
 
     campaign = None
     if args.resume:
@@ -127,7 +135,8 @@ def main() -> int:
 
         def catalog_for(db: str) -> Catalog:
             if db not in catalogs:
-                catalogs[db] = service.get(db) or service.refresh(db)
+                catalog = service.get(db) or service.refresh(db)
+                catalogs[db] = without_imported(catalog) if args.no_descriptions else catalog
             return catalogs[db]
 
         try:
