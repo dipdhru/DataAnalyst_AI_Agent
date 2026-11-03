@@ -19,6 +19,7 @@ from analyst.agent.providers import ProviderError, make_llm_client
 from analyst.catalog import Catalog, CatalogColumn, CatalogService, CatalogStore, CatalogTable
 from analyst.config import Settings, load_settings
 from analyst.connectors import Connector, QueryError, QueryTimeoutError, SourceRegistry
+from analyst.memory import MemoryStore, recall, render
 from analyst.models import QueryResult, SchemaInfo
 from analyst.semantic import load_semantics
 from analyst.sql_guard import UnsafeQueryError
@@ -54,6 +55,7 @@ def create_app(settings: Settings | None = None, llm_client: Any = None) -> Fast
         app.state.registry = registry
         app.state.catalog = CatalogService(registry, CatalogStore(cfg.app_db_path), cfg.profiling)
         app.state.semantics = load_semantics(cfg.metrics_path)
+        app.state.memory = MemoryStore(cfg.app_db_path)
         app.state.llm_client = llm_client
         try:
             yield
@@ -132,7 +134,8 @@ def _add_routes(app: FastAPI) -> None:
             state.semantics.get(connector.name),
         )
         try:
-            return agent.ask(body.question)
+            memory = render(recall(state.memory, connector.name, body.question))
+            return agent.ask(body.question, memory=memory)
         except ProviderError as e:
             code = {401: 503, 403: 503, 429: 429}.get(e.status_code or 0, 502)
             raise HTTPException(code, f"model provider error: {e.message}") from e

@@ -9,6 +9,8 @@ import yaml
 from fake_claude import FakeClaude, reply, tool_use
 from streamlit.testing.v1 import AppTest
 
+from analyst.catalog import CatalogStore
+
 APP = str(Path(__file__).resolve().parents[1] / "ui" / "app.py")
 COUNT_SQL = "SELECT COUNT(*) AS orders FROM orders"
 MONTHLY_SQL = (
@@ -113,3 +115,81 @@ def test_unanswerable_and_quota_messages(app_config: Path) -> None:
     at.session_state["llm_client"] = OutOfQuota()
     at.chat_input[0].set_value("Anything else?").run()
     assert any("free quota" in e.value for e in at.error)
+
+
+def built(fake: FakeClaude) -> AppTest:
+    at = start(fake)
+    next(b for b in at.button if b.label.startswith("Build catalog")).click().run()
+    return at
+
+
+def submits(answer: str, sql: str = COUNT_SQL):
+    return reply(tool_use("submit_answer", answer=answer, sql=sql, answerable=True))
+
+
+def test_marked_answers_are_recalled_with_the_conversation(app_config: Path) -> None:
+    fake = FakeClaude(submits("2,000 orders."), submits("Still 2,000."))
+    at = built(fake)
+    at.chat_input[0].set_value("How many orders are there?").run()
+    next(b for b in at.button if b.label.startswith("✅")).click().run()
+    assert not at.exception
+    assert any("Saved as a verified answer" in s.value for s in at.success)
+
+    at.chat_input[0].set_value("How many orders are there in total?").run()
+    assert not at.exception
+    sent = fake.requests[1]["messages"]
+    assert [m["role"] for m in sent] == ["user", "assistant", "user"]  # earlier turn replayed
+    assert "Verified answers to similar questions" in sent[-1]["content"]
+    assert "SQL: SELECT COUNT(*) AS orders FROM orders" in sent[-1]["content"]
+    assert any("Used from memory (1)" in e.label for e in at.expander)
+
+
+def test_memory_view_adds_glossary_and_corrections_that_reach_the_agent(
+    app_config: Path,
+) -> None:
+    fake = FakeClaude(submits("2,000 orders."))
+    at = built(fake)
+    at.radio[0].set_value("Memory").run()
+    term, meaning = at.text_input[0], at.text_input[1]
+    term.set_value("late order")
+    meaning.set_value("delivered after the estimated date")
+    next(b for b in at.button if b.label == "Add term").click().run()
+    at.text_input[2].set_value("Count only delivered orders.")
+    next(b for b in at.button if b.label == "Add correction").click().run()
+    assert not at.exception
+    page = " ".join(m.value for m in at.markdown)
+    assert "**late order**: delivered after the estimated date" in page
+    assert "Count only delivered orders." in page
+
+    at.radio[0].set_value("Chat").run()
+    at.chat_input[0].set_value("How many late orders?").run()
+    content = fake.requests[0]["messages"][-1]["content"]
+    assert "- late order: delivered after the estimated date" in content
+    assert "- Count only delivered orders." in content
+
+
+def test_catalog_view_saves_user_descriptions(app_config: Path) -> None:
+    at = built(FakeClaude())
+    at.radio[0].set_value("Catalog").run()
+    assert not at.exception
+    table_select = next(s for s in at.selectbox if s.label == "Table")
+    table_select.set_value("orders").run()
+    at.text_input[0].set_value("One row per order.").run()
+    next(b for b in at.button if b.label == "Save descriptions").click().run()
+    assert not at.exception
+    assert any("Saved 1 descriptions" in s.value for s in at.success)
+
+    store = CatalogStore(Path(yaml.safe_load(app_config.read_text())["state_dir"]) / "app.db")
+    orders = store.load("olist").table("orders")
+    assert (orders.description, orders.description_source) == ("One row per order.", "user")
+
+
+def test_past_conversations_can_be_reopened(app_config: Path) -> None:
+    at = built(FakeClaude(submits("2,000 orders.")))
+    at.chat_input[0].set_value("How many orders are there?").run()
+    next(b for b in at.button if b.label == "New conversation").click().run()
+    assert at.session_state["messages"] == []
+    next(b for b in at.button if b.label == "How many orders are there?").click().run()
+    assert not at.exception
+    assert len(at.session_state["messages"]) == 2
+    assert any("2,000 orders." in m.value for m in at.markdown)

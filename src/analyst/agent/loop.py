@@ -8,7 +8,7 @@ on failure) before the answer is accepted.
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -49,6 +49,14 @@ class Usage(BaseModel):
             setattr(self, field, getattr(self, field) + (getattr(usage, field, 0) or 0))
 
 
+class Turn(BaseModel):
+    """One earlier question and its answer, replayed so follow-up questions have context."""
+
+    question: str
+    answer: str | None = None
+    sql: str | None = None
+
+
 class AgentAnswer(BaseModel):
     question: str
     status: Status
@@ -61,6 +69,14 @@ class AgentAnswer(BaseModel):
     elapsed_s: float = 0.0
     usage: Usage = Field(default_factory=Usage)
     detail: str | None = None  # why the run ended, when not answered
+
+    @property
+    def final_sql(self) -> str | None:
+        """The accepted SQL as the agent wrote it; `sql` carries the guard's added LIMIT."""
+        for step in reversed(self.steps):
+            if step.tool == "submit_answer" and step.ok:
+                return step.input.get("sql")
+        return None
 
 
 class Agent:
@@ -80,10 +96,14 @@ class Agent:
         self.tools = AgentTools(connector, catalog, rows_shown=settings.result_rows_shown)
         self.system = build_system_prompt(catalog, semantics)
 
-    def ask(self, question: str) -> AgentAnswer:
+    def ask(self, question: str, *, memory: str = "", history: Sequence[Turn] = ()) -> AgentAnswer:
+        """`memory`: notes recalled for this question (memory.render). `history`: earlier turns
+        of the conversation, so follow-ups like "now by state" make sense."""
         start = time.perf_counter()
         answer = AgentAnswer(question=question, status="error")
-        messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
+        messages: list[dict[str, Any]] = _history_messages(history)
+        content = f"{memory}\n\nQuestion: {question}" if memory else question
+        messages.append({"role": "user", "content": content})
         nudged = False
 
         while answer.turns < self.settings.max_steps:
@@ -196,6 +216,19 @@ class Agent:
         answer.steps.append(record)
         if self.on_step:
             self.on_step(record)
+
+
+def _history_messages(history: Sequence[Turn]) -> list[dict[str, Any]]:
+    messages: list[dict[str, Any]] = []
+    for turn in history:
+        reply = turn.answer or "(no answer)"
+        if turn.sql:
+            reply += f"\n\nSQL I used:\n{turn.sql}"
+        messages += [
+            {"role": "user", "content": turn.question},
+            {"role": "assistant", "content": reply},
+        ]
+    return messages
 
 
 def _text(response: Any) -> str:
