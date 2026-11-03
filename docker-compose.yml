@@ -1,4 +1,4 @@
-# Phase 0 skeleton. The Streamlit UI and the briefing scheduler join in later phases.
+# Phase 0 skeleton. The Streamlit UI joins in a later phase.
 services:
   api:
     build: .
@@ -8,7 +8,7 @@ services:
     volumes:
       - ./config.yaml:/app/config.yaml:ro
       - ./data:/app/data:ro       # Olist test data and any local SQLite files
-      - ./state:/app/state        # app.db (catalog) and uploads.duckdb
+      - ./state:/app/state        # app.db (catalog, later memory)
 
   # Optional local Postgres for trying the live-DB connector: `docker compose --profile pg up`
   postgres:

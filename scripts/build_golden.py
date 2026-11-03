@@ -41,7 +41,7 @@ def load_golden(path: Path = GOLDEN) -> dict[str, Any]:
 
 
 def open_source(settings: Settings, name: str) -> Connector:
-    """Open only the golden set's source, so this runs while the API holds uploads.duckdb."""
+    """Open only the golden set's source."""
     src = next(s for s in settings.sources if s.name == name)
     return SqlAlchemyConnector(
         src.name, src.resolve_url(), limits=settings.query, schemas=src.schemas
