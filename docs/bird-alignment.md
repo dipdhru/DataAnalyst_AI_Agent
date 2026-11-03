@@ -7,7 +7,10 @@ BIRD gives a number we can compare with published systems. Our own Olist golden 
 
 Status: step 1 done (2026-11-02). Runner for step 4 built (2026-11-03, `scripts/run_bench.py`;
 gold SQL submitted as the prediction scores 20/20 on the default sample); no agent score yet.
-Steps 2, 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
+First agent score (2026-11-03, Groq `openai/gpt-oss-120b`, with evidence, without descriptions):
+**9/15 EX (60%)** before the free daily limit; 14 of the 15 are challenging.
+Step 2 done (2026-11-03): `scripts/import_bird_descriptions.py` describes 620 of 798 columns.
+Steps 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
 
 ## Step 1 results
 

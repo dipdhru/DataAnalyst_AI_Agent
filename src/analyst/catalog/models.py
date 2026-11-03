@@ -7,7 +7,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-DescriptionSource = Literal["user", "llm"]
+# user: typed by the user (always wins); import: shipped with the dataset; llm: model-written.
+DescriptionSource = Literal["user", "import", "llm"]
 
 
 class ColumnProfile(BaseModel):
