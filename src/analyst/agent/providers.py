@@ -34,14 +34,61 @@ def make_llm_client(settings: AgentSettings, on_wait: Callable[[str], None] | No
         return anthropic.Anthropic()
     from openai import OpenAI
 
-    key = os.environ.get(settings.api_key_env or "", "")
-    if not key:
-        raise ProviderError(401, f"{settings.api_key_env} is not set (add it to .env)")
+    if settings.api_key_env is None:
+        key = "not-needed"  # a local server such as Ollama; the SDK still wants a value
+    else:
+        key = os.environ.get(settings.api_key_env, "")
+        if not key:
+            raise ProviderError(401, f"{settings.api_key_env} is not set (add it to .env)")
     return OpenAICompatClient(
         # Our own retry loop handles busy free tiers; the SDK's would stack on top of it.
-        OpenAI(base_url=settings.base_url, api_key=key, max_retries=0, timeout=60),
+        OpenAI(
+            base_url=settings.base_url,
+            api_key=key,
+            max_retries=0,
+            timeout=settings.request_timeout_s,
+        ),
         min_seconds_between_calls=settings.min_seconds_between_calls,
         on_wait=on_wait,
+        reasoning_effort=settings.reasoning_effort,
+    )
+
+
+OLLAMA_URL = "http://localhost:11434/v1"
+
+
+def ollama_settings(settings: AgentSettings, model: str, *, think: bool = False) -> AgentSettings:
+    """Settings for a model served by a local Ollama: no key, no throttle, patient timeout.
+    Thinking is off by default: on a laptop it can make one call take over ten minutes."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": OLLAMA_URL,
+            "api_key_env": None,
+            "model": model,
+            "min_seconds_between_calls": 0.0,
+            "request_timeout_s": 900.0,
+            "reasoning_effort": None if think else "none",
+        }
+    )
+
+
+GROQ_URL = "https://api.groq.com/openai/v1"
+
+
+def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
+    """Settings for Groq's free plan (key in GROQ_API_KEY). Its tightest limit is tokens per
+    minute, so calls are spaced out; per-minute 429s are waited out, per-day ones stop the run."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": GROQ_URL,
+            "api_key_env": "GROQ_API_KEY",
+            "model": model,
+            "min_seconds_between_calls": 10.0,
+            "request_timeout_s": 120.0,
+            "reasoning_effort": None,
+        }
     )
 
 
@@ -59,8 +106,10 @@ class OpenAICompatClient:
         sleep: Any = time.sleep,
         clock: Any = time.monotonic,
         on_wait: Callable[[str], None] | None = None,
+        reasoning_effort: str | None = None,
     ) -> None:
         self._openai = openai_client
+        self._reasoning_effort = reasoning_effort
         self._on_wait = on_wait
         self._min_gap = min_seconds_between_calls
         self._sleep, self._clock = sleep, clock
@@ -86,6 +135,8 @@ class OpenAICompatClient:
         if tools:
             request["tools"] = [to_openai_tool(t) for t in tools]
             request["tool_choice"] = "auto"
+        if self._reasoning_effort:
+            request["reasoning_effort"] = self._reasoning_effort
         return from_openai_response(self._send(request))
 
     def _send(self, request: dict[str, Any]) -> Any:

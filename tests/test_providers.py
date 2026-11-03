@@ -13,7 +13,9 @@ from analyst.agent import TOOL_DEFINITIONS, Agent
 from analyst.agent.providers import (
     OpenAICompatClient,
     ProviderError,
+    groq_settings,
     make_llm_client,
+    ollama_settings,
     to_openai_tool,
 )
 from analyst.catalog import CatalogService, CatalogStore
@@ -244,3 +246,26 @@ def test_missing_key_is_a_clear_error(monkeypatch) -> None:
     )
     with pytest.raises(ProviderError, match="GEMINI_API_KEY is not set"):
         make_llm_client(settings)
+
+
+def test_ollama_needs_no_key_and_turns_thinking_off(monkeypatch) -> None:
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    local = ollama_settings(AgentSettings(api_key_env="GEMINI_API_KEY"), "qwen3:4b")
+    assert (local.api_key_env, local.min_seconds_between_calls) == (None, 0.0)
+    assert isinstance(make_llm_client(local), OpenAICompatClient)  # no key error
+
+    fake = FakeOpenAI(completion(content="ok", finish="stop"))
+    client = OpenAICompatClient(fake, reasoning_effort=local.reasoning_effort)
+    client.beta.messages.create(
+        model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert fake.requests[0]["reasoning_effort"] == "none"
+    assert ollama_settings(AgentSettings(), "m", think=True).reasoning_effort is None
+
+
+def test_groq_preset_reads_its_own_key(monkeypatch) -> None:
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    groq = groq_settings(AgentSettings(), "openai/gpt-oss-120b")
+    assert groq.base_url.startswith("https://api.groq.com/") and groq.min_seconds_between_calls > 0
+    with pytest.raises(ProviderError, match="GROQ_API_KEY is not set"):
+        make_llm_client(groq)

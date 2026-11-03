@@ -141,7 +141,7 @@ class _PretendAI:
         return reply
 
 
-def watch_the_ai(question: str = "What is our late-delivery rate?",
+def watch_the_ai(question: str = "What is our late-time delivery rate?",
                  sql_to_try: str = "SELECT order_status, COUNT(*) FROM orders GROUP BY 1"):
     """Show, step by step, how the AI and our code work together on one question."""
     pretend = _PretendAI([
