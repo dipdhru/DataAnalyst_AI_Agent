@@ -7,8 +7,9 @@ BIRD gives a number we can compare with published systems. Our own Olist golden 
 
 Status: step 1 done (2026-11-02). Runner for step 4 built (2026-11-03, `scripts/run_bench.py`;
 gold SQL submitted as the prediction scores 20/20 on the default sample); no agent score yet.
-First agent score (2026-11-03, Groq `openai/gpt-oss-120b`, with evidence, without descriptions):
-**9/15 EX (60%)** before the free daily limit; 14 of the 15 are challenging.
+Baseline agent score (2026-11-04, Groq `openai/gpt-oss-120b`, with evidence, without
+descriptions): **11/20 EX (55%)** on the default sample; details under "Step 4 results". The
+same sample with imported descriptions is running.
 Step 2 done (2026-11-03): `scripts/import_bird_descriptions.py` describes 620 of 798 columns.
 Steps 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
 
@@ -27,6 +28,27 @@ Steps 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](bench
 - Bug found and fixed: join inference produced 219 false joins on BIRD (`id` to `id`, `url` to
   `url`, members of composite keys, columns that already had declared FKs). It now infers 3,
   all correct. Rules and tests are in `catalog/relationships.py` and `tests/test_catalog.py`.
+
+## Step 4 results: baseline
+
+`run_bench.py --groq openai/gpt-oss-120b --sample 20 --no-descriptions` (with evidence, max 10
+steps), run 2026-11-03 to 2026-11-04 on Groq's free plan (about one question an hour under its
+200k tokens per day). Sample: 18 challenging, 1 moderate, 1 simple.
+
+- **EX 11/20 (55%)**; the tolerant answer match agrees (11/20). Average 4.9 turns.
+- Passed: 449, 48, 134, 170, 454, 58, 260, 412, 353, 234, 151.
+- No answer (4):
+  - 99, 54: conversation over Groq's 8k-token request cap (a free-plan limit, not the model).
+  - 310: the model wrote an invalid tool call twice.
+  - 496: no answer within 10 steps.
+- Wrong result (5):
+  - 263: right race, but the time as milliseconds instead of BIRD's `33:31.266` string.
+  - 370: wrong value (32.25 instead of 77.4).
+  - 222 (`financial`): 14 of 17 columns right; missed the cryptic `A11` column, which the
+    imported descriptions explain. The with-descriptions run tests this.
+  - 1: returned a different column than the gold SQL.
+  - 327: 3 rows instead of 5.
+- Raw results: `evals/runs/bench-bird-evidence-nodesc-openai-gpt-oss-120b.json` (git-ignored).
 
 ## What BIRD is (check details against the repo before building)
 
