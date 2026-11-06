@@ -17,6 +17,12 @@ from pydantic import BaseModel
 
 from analyst.agent import Agent, AgentAnswer
 from analyst.agent.providers import QuestionFailedError
+from analyst.agent.trust import (
+    TrustCheck,
+    cross_check,
+    needs_second_attempt,
+    second_attempt_prompt,
+)
 from analyst.connectors import Connector, QueryError
 from analyst.evals.runner import EvalResult, cost
 from analyst.evals.scoring import answer_match, execution_match, has_top_level_order_by
@@ -38,6 +44,7 @@ class BenchResult(EvalResult):
     soft_passed: bool = False  # our tolerant answer match
     harness_error: str | None = None  # the gold side failed: not the agent's fault
     submitted_sql: str | None = None
+    trust: TrustCheck | None = None  # only on runs with the trust check on
 
 
 def load_bird(path: Path) -> list[BenchQuestion]:
@@ -125,23 +132,38 @@ def run_bench(
     model: str,
     row_cap: int,
     with_evidence: bool = True,
+    with_trust: bool = False,
     on_result: Callable[[BenchResult], None] | None = None,
     on_question: Callable[[BenchQuestion], None] | None = None,
 ) -> list[BenchResult]:
-    """`make_agent(db_id)` and `connector_for(db_id)` give the agent and source per database."""
+    """`make_agent(db_id)` and `connector_for(db_id)` give the agent and source per database.
+    `with_trust` asks each answered question a second time; the score stays the first attempt's,
+    so EX is comparable with runs that have the check off."""
+
+    def attempt(q: BenchQuestion, prompt: str) -> AgentAnswer:
+        try:
+            return make_agent(q.db_id).ask(prompt)
+        except QuestionFailedError as e:  # a model failure on this question: score it, go on
+            return AgentAnswer(question=prompt, status="error", detail=e.message)
+
     results = []
     for q in questions:
         if on_question:
             on_question(q)
-        try:
-            answer = make_agent(q.db_id).ask(prompt_for(q, with_evidence=with_evidence))
-        except QuestionFailedError as e:  # a model failure on this question: score it, go on
-            answer = AgentAnswer(
-                question=prompt_for(q, with_evidence=with_evidence),
-                status="error",
-                detail=e.message,
+        prompt = prompt_for(q, with_evidence=with_evidence)
+        answer = attempt(q, prompt)
+        connector = connector_for(q.db_id)
+        ex, soft, reason, harness = score_bench(q, answer, connector, row_cap=row_cap)
+        trust = None
+        cost_usd = cost(model, answer)
+        if with_trust:
+            second = (
+                attempt(q, second_attempt_prompt(prompt)) if needs_second_attempt(answer) else None
             )
-        ex, soft, reason, harness = score_bench(q, answer, connector_for(q.db_id), row_cap=row_cap)
+            trust = cross_check(answer, second, connector, row_cap=row_cap)
+            if second is not None and cost_usd is not None:
+                second_cost = cost(model, second)
+                cost_usd = None if second_cost is None else cost_usd + second_cost
         result = BenchResult(
             id=q.id,
             category=q.db_id,
@@ -151,13 +173,35 @@ def run_bench(
             reason=reason,
             harness_error=harness,
             submitted_sql=submitted_sql(answer),
+            trust=trust,
             agent=answer,
-            cost_usd=cost(model, answer),
+            cost_usd=cost_usd,
         )
         results.append(result)
         if on_result:
             on_result(result)
     return results
+
+
+def summarize_trust(results: Sequence[BenchResult]) -> dict[str, Any]:
+    """What the labels are worth. A label is only useful if `confident` beats the plain EX rate
+    and `wrong_answers_flagged` is high without too many `false_alarms`."""
+    checked = [r for r in results if r.trust is not None and r.harness_error is None]
+    confident = [r for r in checked if r.trust.label == "confident"]
+    flagged = [r for r in checked if r.trust.label == "check"]
+    answered = confident + flagged
+    right = [r for r in answered if r.passed]
+    wrong = [r for r in answered if not r.passed]
+
+    def rate(hits: int, total: int) -> str:
+        return f"{hits}/{total} ({hits / total:.0%})" if total else "0/0"
+
+    return {
+        "confident_and_right": rate(sum(r.passed for r in confident), len(confident)),
+        "wrong_answers_flagged": rate(sum(not r.passed for r in flagged), len(wrong)),
+        "false_alarms": rate(sum(r.passed for r in flagged), len(right)),
+        "no_answer": len(checked) - len(answered),
+    }
 
 
 def summarize_bench(results: Sequence[BenchResult]) -> dict[str, Any]:
@@ -174,7 +218,7 @@ def summarize_bench(results: Sequence[BenchResult]) -> dict[str, Any]:
         return {k: rate(v) for k, v in sorted(groups.items())}
 
     costs = [r.cost_usd for r in scored if r.cost_usd is not None]
-    return {
+    summary: dict[str, Any] = {
         "ex": rate(scored),
         "answer_match": rate(scored, "soft_passed"),
         "by_difficulty": grouped(lambda r: r.difficulty),
@@ -183,6 +227,9 @@ def summarize_bench(results: Sequence[BenchResult]) -> dict[str, Any]:
         "cost_usd": round(sum(costs), 2) if costs else None,
         "avg_turns": round(sum(r.agent.turns for r in scored) / len(scored), 1) if scored else None,
     }
+    if any(r.trust is not None for r in scored):
+        summary["trust"] = summarize_trust(scored)
+    return summary
 
 
 def bird_predictions(results: Sequence[BenchResult]) -> dict[str, str]:

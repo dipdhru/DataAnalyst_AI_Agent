@@ -63,6 +63,11 @@ def main() -> int:
         action="store_true",
         help="hide column descriptions imported from BIRD (scripts/import_bird_descriptions.py)",
     )
+    parser.add_argument(
+        "--trust",
+        action="store_true",
+        help="ask each answered question twice and label it confident/check (twice the tokens)",
+    )
     parser.add_argument("--provider", choices=["anthropic", "openai_compatible"])
     parser.add_argument("--model", help="override agent.model from config.yaml")
     parser.add_argument("--ollama", metavar="MODEL", help="use a local Ollama model")
@@ -106,6 +111,7 @@ def main() -> int:
     row_cap = bird.query.max_row_limit
     variant = "noevidence" if args.no_evidence else "evidence"
     variant += "-nodesc" if args.no_descriptions else "-desc"
+    variant += "-trust" if args.trust else ""
 
     campaign = None
     if args.resume:
@@ -156,7 +162,8 @@ def main() -> int:
 
         def show(r: BenchResult) -> None:
             mark = "HARNESS" if r.harness_error else ("PASS" if r.passed else "FAIL")
-            print(f"{mark} {r.id:>5} {r.agent.turns:2} turns  {r.reason[:100]}")
+            label = f"  [{r.trust.label}]" if r.trust else ""
+            print(f"{mark} {r.id:>5} {r.agent.turns:2} turns  {r.reason[:100]}{label}")
             if campaign:
                 campaign.add(r)
 
@@ -174,6 +181,7 @@ def main() -> int:
                 model=agent_settings.model,
                 row_cap=row_cap,
                 with_evidence=not args.no_evidence,
+                with_trust=args.trust,
                 on_result=show,
                 on_question=show_question,
             )
