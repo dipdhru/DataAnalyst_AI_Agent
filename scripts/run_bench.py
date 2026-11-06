@@ -7,6 +7,7 @@
     uv run python scripts/run_bench.py --ids 0,7 --provider anthropic --model claude-haiku-5-5
     uv run python scripts/run_bench.py --ollama qwen3:4b     # local model: free, no quota
     uv run python scripts/run_bench.py --groq openai/gpt-oss-120b   # Groq free plan
+    uv run python scripts/run_bench.py --nvidia openai/gpt-oss-20b   # NVIDIA free endpoint
 
 The model comes from config.yaml (`agent:`); databases and limits from config.bird.yaml
 (written by scripts/setup_bird.py). --resume keeps progress in
@@ -29,6 +30,7 @@ from analyst.agent.providers import (
     ProviderError,
     groq_settings,
     make_llm_client,
+    nvidia_settings,
     ollama_settings,
 )
 from analyst.catalog import Catalog, CatalogService, CatalogStore
@@ -72,6 +74,7 @@ def main() -> int:
     parser.add_argument("--model", help="override agent.model from config.yaml")
     parser.add_argument("--ollama", metavar="MODEL", help="use a local Ollama model")
     parser.add_argument("--groq", metavar="MODEL", help="use Groq (GROQ_API_KEY in .env)")
+    parser.add_argument("--nvidia", metavar="MODEL", help="use NVIDIA (NVIDIA_API_KEY in .env)")
     parser.add_argument("--think", action="store_true", help="with --ollama: keep thinking on")
     parser.add_argument(
         "--max-steps",
@@ -104,6 +107,8 @@ def main() -> int:
         agent_settings.model = args.model
     if args.groq:
         agent_settings = groq_settings(agent_settings, args.groq)
+    if args.nvidia:
+        agent_settings = nvidia_settings(agent_settings, args.nvidia)
     if args.ollama:
         agent_settings = ollama_settings(agent_settings, args.ollama, think=args.think)
     agent_settings.max_steps = args.max_steps

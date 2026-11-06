@@ -17,6 +17,7 @@ from analyst.agent.providers import (
     RequestTooLargeError,
     groq_settings,
     make_llm_client,
+    nvidia_settings,
     ollama_settings,
     to_openai_tool,
 )
@@ -271,6 +272,15 @@ def test_groq_preset_reads_its_own_key(monkeypatch) -> None:
     assert groq.base_url.startswith("https://api.groq.com/") and groq.min_seconds_between_calls > 0
     with pytest.raises(ProviderError, match="GROQ_API_KEY is not set"):
         make_llm_client(groq)
+
+
+def test_nvidia_preset_reads_its_own_key(monkeypatch) -> None:
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    nvidia = nvidia_settings(AgentSettings(), "openai/gpt-oss-20b")
+    assert nvidia.base_url.startswith("https://integrate.api.nvidia.com/")
+    assert nvidia.min_seconds_between_calls > 0
+    with pytest.raises(ProviderError, match="NVIDIA_API_KEY is not set"):
+        make_llm_client(nvidia)
 
 
 def _bad_tool_call_error() -> openai.BadRequestError:
