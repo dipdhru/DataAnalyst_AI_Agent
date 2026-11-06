@@ -7,9 +7,9 @@ BIRD gives a number we can compare with published systems. Our own Olist golden 
 
 Status: step 1 done (2026-11-02). Runner for step 4 built (2026-11-03, `scripts/run_bench.py`;
 gold SQL submitted as the prediction scores 20/20 on the default sample); no agent score yet.
-Baseline agent score (2026-11-04, Groq `openai/gpt-oss-120b`, with evidence, without
-descriptions): **11/20 EX (55%)** on the default sample; details under "Step 4 results". The
-same sample with imported descriptions is running.
+Agent scores (2026-11-06, Groq `openai/gpt-oss-120b`, with evidence, default sample of 20):
+**11/20 EX (55%)** without descriptions, **12/20 EX (60%)** with imported descriptions. That gap
+is within noise; details under "Step 4 results".
 Step 2 done (2026-11-03): `scripts/import_bird_descriptions.py` describes 620 of 798 columns.
 Steps 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
 
@@ -49,6 +49,29 @@ steps), run 2026-11-03 to 2026-11-04 on Groq's free plan (about one question an 
   - 1: returned a different column than the gold SQL.
   - 327: 3 rows instead of 5.
 - Raw results: `evals/runs/bench-bird-evidence-nodesc-openai-gpt-oss-120b.json` (git-ignored).
+
+## Step 4 results: with descriptions vs without
+
+Same sample, model and step limit, with the imported descriptions, finished 2026-11-06.
+
+| | Without | With |
+|---|---|---|
+| EX | 11/20 | 12/20 |
+| Hit the 10-step limit | 1 | 5 |
+| Average turns | 5.0 | 6.4 |
+| Tokens per question (those with a recorded count) | 12,118 | 15,030 |
+
+- Gained (5): 263, 222, 99, 310, 54. Lost (4): 449, 454, 260, 234.
+- Four of those nine swings are provider errors in one run only, not answers: 99 and 54
+  (request too large, without), 310 and 454 (invalid tool call, 310 without, 454 with). On the
+  other 16 questions it is 10/16 without and 9/16 with.
+- Descriptions clearly helped on 222, the cryptic `A11` column, and probably on 263 (time format).
+- Against that, the agent explores more: 449 took 2 turns without and hit the limit with, using
+  53,247 tokens. 234 also passed without and hit the limit with.
+- Conclusion: no measurable overall gain on this sample. 20 questions and one run per arm are
+  too few to separate a small effect from noise. Untested: whether a higher step limit recovers
+  the runs that hit it.
+- Raw results: `evals/runs/bench-bird-evidence-desc-openai-gpt-oss-120b.json` (git-ignored).
 
 ## What BIRD is (check details against the repo before building)
 
