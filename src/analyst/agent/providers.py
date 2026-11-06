@@ -1,5 +1,6 @@
 """Model providers. The agent loop speaks the Anthropic Messages shape; other providers get an
-adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, OpenRouter, Ollama).
+adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, NVIDIA, OpenRouter,
+Ollama).
 """
 
 from __future__ import annotations
@@ -112,6 +113,27 @@ def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "result_rows_shown": 20,
             # Groq's daily limit is a rolling window that names a short wait: sit it out.
             "max_quota_wait_s": 1800.0,
+        }
+    )
+
+
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1"
+
+
+def nvidia_settings(settings: AgentSettings, model: str) -> AgentSettings:
+    """Settings for NVIDIA's free endpoints (key in NVIDIA_API_KEY). NVIDIA doesn't publish firm
+    limits; about 40 requests a minute is the usual report, so calls get a short gap."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": NVIDIA_URL,
+            "api_key_env": "NVIDIA_API_KEY",
+            "model": model,
+            "min_seconds_between_calls": 2.0,
+            "request_timeout_s": 120.0,
+            "reasoning_effort": None,
+            # The same rows per query as Groq, so both providers see the same tool results.
+            "result_rows_shown": 20,
         }
     )
 
