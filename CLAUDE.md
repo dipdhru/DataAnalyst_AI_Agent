@@ -42,6 +42,9 @@ uv run pytest -q -m bird                  # BIRD gold SQL through run_query (~2 
 uv run python scripts/run_eval.py --resume  # live eval, resumes daily on the free tier
 uv run python scripts/run_bench.py --sample 20 --resume  # BIRD score, resumes daily
 uv run python scripts/run_bench.py --groq openai/gpt-oss-120b --sample 20 --resume  # free, fast
+uv run python scripts/run_bench.py --groq openai/gpt-oss-120b --sample 20 --resume --trust  # 2x tokens
+uv run python scripts/run_bench.py --nvidia openai/gpt-oss-20b --sample 20 --resume --trust  # free
+uv run python scripts/run_bench.py --cerebras gpt-oss-120b --sample 20 --resume --trust  # trial credit
 uv run python scripts/import_bird_descriptions.py   # BIRD column descriptions -> catalogs
 uv run python scripts/describe_catalog.py --source olist --groq openai/gpt-oss-20b  # fill gaps
 uv run streamlit run ui/app.py            # chat UI on http://localhost:8501
@@ -75,6 +78,7 @@ src/analyst/
     tools.py         list_tables, describe_table, run_sql, submit_answer (strict schemas)
     prompt.py        system prompt: tables, definitions, rules (stable per source, cached)
     loop.py          manual tool loop; final SQL is executed before an answer is accepted
+    trust.py         trust check: a second attempt at the question; agree = confident, else check
     providers.py     model clients: Claude (Anthropic SDK) or any OpenAI-compatible API
   evals/
     scoring.py       answer_match (tolerant) and execution_match (BIRD EX)
@@ -98,8 +102,10 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
 - **Providers:** `agent.provider` in `config.yaml`. The loop speaks the Anthropic Messages
   shape; `providers.OpenAICompatClient` translates for Gemini/Groq/OpenRouter/Ollama (free
   tiers, used while the user doesn't want to spend). Presets: `groq_settings` (Groq free
-  plan, best free option for benchmarks) and `ollama_settings` (local; too slow on the user's
-  8 GB M1 for the agent). Keep the loop provider-neutral.
+  plan, best free option for benchmarks), `nvidia_settings` (NVIDIA free endpoints; only
+  `openai/gpt-oss-20b` of the gpt-oss models; very slow in testing 2026-11-07),
+  `cerebras_settings` (free trial credit; `gpt-oss-120b`, 5 requests a minute) and `ollama_settings` (local; too slow on the
+  user's 8 GB M1 for the agent). Keep the loop provider-neutral.
 - **Claude API usage:** model and effort come from `config.yaml` (`agent:`). No forced
   `tool_choice` (400 on Opus 5.5); tools use `strict: true`; history is append-only (append the
   full `response.content`); refusals use server-side `fallbacks: "default"`.

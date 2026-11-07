@@ -7,6 +7,8 @@
     uv run python scripts/run_bench.py --ids 0,7 --provider anthropic --model claude-haiku-5-5
     uv run python scripts/run_bench.py --ollama qwen3:4b     # local model: free, no quota
     uv run python scripts/run_bench.py --groq openai/gpt-oss-120b   # Groq free plan
+    uv run python scripts/run_bench.py --nvidia openai/gpt-oss-20b   # NVIDIA free endpoint
+    uv run python scripts/run_bench.py --cerebras gpt-oss-120b   # Cerebras free trial
 
 The model comes from config.yaml (`agent:`); databases and limits from config.bird.yaml
 (written by scripts/setup_bird.py). --resume keeps progress in
@@ -27,8 +29,10 @@ import anthropic
 from analyst.agent import Agent, ToolCall
 from analyst.agent.providers import (
     ProviderError,
+    cerebras_settings,
     groq_settings,
     make_llm_client,
+    nvidia_settings,
     ollama_settings,
 )
 from analyst.catalog import Catalog, CatalogService, CatalogStore
@@ -63,10 +67,19 @@ def main() -> int:
         action="store_true",
         help="hide column descriptions imported from BIRD (scripts/import_bird_descriptions.py)",
     )
+    parser.add_argument(
+        "--trust",
+        action="store_true",
+        help="ask each answered question twice and label it confident/check (twice the tokens)",
+    )
     parser.add_argument("--provider", choices=["anthropic", "openai_compatible"])
     parser.add_argument("--model", help="override agent.model from config.yaml")
     parser.add_argument("--ollama", metavar="MODEL", help="use a local Ollama model")
     parser.add_argument("--groq", metavar="MODEL", help="use Groq (GROQ_API_KEY in .env)")
+    parser.add_argument("--nvidia", metavar="MODEL", help="use NVIDIA (NVIDIA_API_KEY in .env)")
+    parser.add_argument(
+        "--cerebras", metavar="MODEL", help="use Cerebras (CEREBRAS_API_KEY in .env)"
+    )
     parser.add_argument("--think", action="store_true", help="with --ollama: keep thinking on")
     parser.add_argument(
         "--max-steps",
@@ -99,6 +112,10 @@ def main() -> int:
         agent_settings.model = args.model
     if args.groq:
         agent_settings = groq_settings(agent_settings, args.groq)
+    if args.nvidia:
+        agent_settings = nvidia_settings(agent_settings, args.nvidia)
+    if args.cerebras:
+        agent_settings = cerebras_settings(agent_settings, args.cerebras)
     if args.ollama:
         agent_settings = ollama_settings(agent_settings, args.ollama, think=args.think)
     agent_settings.max_steps = args.max_steps
@@ -106,6 +123,7 @@ def main() -> int:
     row_cap = bird.query.max_row_limit
     variant = "noevidence" if args.no_evidence else "evidence"
     variant += "-nodesc" if args.no_descriptions else "-desc"
+    variant += "-trust" if args.trust else ""
 
     campaign = None
     if args.resume:
@@ -156,7 +174,8 @@ def main() -> int:
 
         def show(r: BenchResult) -> None:
             mark = "HARNESS" if r.harness_error else ("PASS" if r.passed else "FAIL")
-            print(f"{mark} {r.id:>5} {r.agent.turns:2} turns  {r.reason[:100]}")
+            label = f"  [{r.trust.label}]" if r.trust else ""
+            print(f"{mark} {r.id:>5} {r.agent.turns:2} turns  {r.reason[:100]}{label}")
             if campaign:
                 campaign.add(r)
 
@@ -174,6 +193,7 @@ def main() -> int:
                 model=agent_settings.model,
                 row_cap=row_cap,
                 with_evidence=not args.no_evidence,
+                with_trust=args.trust,
                 on_result=show,
                 on_question=show_question,
             )
