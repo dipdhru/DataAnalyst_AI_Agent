@@ -10,6 +10,9 @@ gold SQL submitted as the prediction scores 20/20 on the default sample); no age
 Agent scores (2026-11-06, Groq `openai/gpt-oss-120b`, with evidence, default sample of 20):
 **11/20 EX (55%)** without descriptions, **12/20 EX (60%)** with imported descriptions. That gap
 is within noise; details under "Step 4 results".
+Trust check (2026-11-07, Cerebras `gpt-oss-120b`, same sample): 11/20 EX; 9 of 11 answers
+labelled confident were right, and 2 of 4 wrong answers were labelled check. Details under
+"Trust check results".
 Step 2 done (2026-11-03): `scripts/import_bird_descriptions.py` describes 620 of 798 columns.
 Steps 3 and 5 not started. Overall plan, including Spider: [benchmarks.md](benchmarks.md).
 
@@ -72,6 +75,30 @@ Same sample, model and step limit, with the imported descriptions, finished 2026
   too few to separate a small effect from noise. Untested: whether a higher step limit recovers
   the runs that hit it.
 - Raw results: `evals/runs/bench-bird-evidence-desc-openai-gpt-oss-120b.json` (git-ignored).
+
+## Trust check results
+
+`run_bench.py --cerebras gpt-oss-120b --sample 20 --resume --trust` (with evidence and imported
+descriptions, max 10 steps), run 2026-11-07 on Cerebras's free trial in about 50 minutes. Each
+answered question gets a second, independent attempt (`agent/trust.py`): the two results agree =
+`confident`, disagree = `check`. The score is always the first attempt's.
+
+- **EX 11/20 (55%)**. Same model as the Groq runs but another provider, so treat it as close to,
+  not equal to, the 12/20 with descriptions on Groq.
+- 15 answered, 5 not (10-step limit: 449, 222, 496, 58, 353).
+
+| | Right | Wrong |
+|---|---|---|
+| `confident` | 9 | 2 (370, 327) |
+| `check` | 2 (260, 234) | 2 (263, 1) |
+
+- Of confident answers, 9/11 (82%) were right, against 11/15 (73%) of all answers given.
+- Of wrong answers, 2/4 were flagged. The two that weren't (370: wrong value; 327: 3 rows
+  instead of 5) are mistakes both attempts made alike, the known limit of agreement checks.
+- Of right answers, 2/11 were flagged (false alarms).
+- Conclusion: the label points the right way, but 4 wrong answers are far too few to measure
+  it. Next: a larger sample (50+) now that Cerebras makes a run take about an hour.
+- Raw results: `evals/runs/bench-bird-evidence-desc-trust-gpt-oss-120b.json` (git-ignored).
 
 ## What BIRD is (check details against the repo before building)
 
