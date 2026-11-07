@@ -72,6 +72,7 @@ def make_llm_client(settings: AgentSettings, on_wait: Callable[[str], None] | No
         on_wait=on_wait,
         reasoning_effort=settings.reasoning_effort,
         max_quota_wait_s=settings.max_quota_wait_s,
+        empty_tool_parameters=settings.empty_tool_parameters,
     )
 
 
@@ -158,6 +159,7 @@ def cerebras_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "reasoning_effort": None,
             # The same rows per query as Groq, so both providers see the same tool results.
             "result_rows_shown": 20,
+            "empty_tool_parameters": True,
         }
     )
 
@@ -179,8 +181,10 @@ class OpenAICompatClient:
         on_wait: Callable[[str], None] | None = None,
         reasoning_effort: str | None = None,
         max_quota_wait_s: float = 0.0,
+        empty_tool_parameters: bool = False,
     ) -> None:
         self._openai = openai_client
+        self._empty_tool_parameters = empty_tool_parameters
         self._reasoning_effort = reasoning_effort
         self._max_quota_wait = max_quota_wait_s
         self._on_wait = on_wait
@@ -206,7 +210,9 @@ class OpenAICompatClient:
             "messages": to_openai_messages(system, messages),
         }
         if tools:
-            request["tools"] = [to_openai_tool(t) for t in tools]
+            request["tools"] = [
+                to_openai_tool(t, empty_parameters=self._empty_tool_parameters) for t in tools
+            ]
             request["tool_choice"] = "auto"
         if self._reasoning_effort:
             request["reasoning_effort"] = self._reasoning_effort
@@ -275,10 +281,10 @@ class OpenAICompatClient:
         self._last_call = self._clock()
 
 
-def to_openai_tool(tool: dict[str, Any]) -> dict[str, Any]:
+def to_openai_tool(tool: dict[str, Any], *, empty_parameters: bool = False) -> dict[str, Any]:
     function: dict[str, Any] = {"name": tool["name"], "description": tool["description"]}
     schema = _portable_schema(tool["input_schema"])
-    if schema.get("properties"):
+    if schema.get("properties") or empty_parameters:
         function["parameters"] = schema
     return {"type": "function", "function": function}
 
