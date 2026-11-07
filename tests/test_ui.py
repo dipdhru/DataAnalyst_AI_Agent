@@ -144,6 +144,31 @@ def test_marked_answers_are_recalled_with_the_conversation(app_config: Path) -> 
     assert any("Used from memory (1)" in e.label for e in at.expander)
 
 
+def test_double_check_labels_each_answer(app_config: Path) -> None:
+    delivered = "SELECT COUNT(*) AS orders FROM orders WHERE order_status = 'delivered'"
+    fake = FakeClaude(
+        submits("2,000 orders."),
+        submits("2,000 orders, counted again."),  # same result: double-checked
+        submits("2,000 orders."),
+        submits("Fewer orders.", sql=delivered),  # different result: flagged
+    )
+    at = built(fake)
+    at.toggle[0].set_value(True).run()
+    at.chat_input[0].set_value("How many orders are there?").run()
+    assert not at.exception
+    assert len(fake.requests) == 2  # the second attempt really ran
+    assert "Work this out from scratch" in str(fake.requests[1]["messages"][0]["content"])
+    page = " ".join(m.value for m in at.markdown)
+    assert "Double-checked" in page and "Double-check this" not in page
+
+    at.chat_input[0].set_value("How many orders in total?").run()
+    assert not at.exception
+    page = " ".join(m.value for m in at.markdown)
+    assert "Double-check this" in page and "two attempts disagree" in page
+    # The label is saved with the conversation, so it shows again after a redraw.
+    assert at.session_state["messages"][-1]["trust"]["label"] == "check"
+
+
 def test_memory_view_adds_glossary_and_corrections_that_reach_the_agent(
     app_config: Path,
 ) -> None:
