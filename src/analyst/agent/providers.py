@@ -199,7 +199,7 @@ class OpenAICompatClient:
         while True:
             self._throttle()
             try:
-                return self._openai.chat.completions.create(**request)
+                response = self._openai.chat.completions.create(**request)
             except openai.APIStatusError as e:
                 if _bad_tool_call(e):
                     # The model wrote a malformed tool call (Groq rejects it with a 400).
@@ -227,6 +227,11 @@ class OpenAICompatClient:
                 failure: tuple[int | None, str] = (e.status_code, _message(e))
             except openai.APIConnectionError as e:  # includes timeouts
                 failure = (None, f"could not reach the {request['model']} provider ({e})")
+            else:
+                if getattr(response, "choices", None):
+                    return response
+                # A busy free queue (NVIDIA) can answer 200 with no choices: retry it like a 503.
+                failure = (None, f"the {request['model']} provider sent an empty reply")
             if attempt == self.RATE_LIMIT_RETRIES:
                 status, message = failure
                 raise ProviderError(status, f"gave up after {attempt + 1} tries: {message}")

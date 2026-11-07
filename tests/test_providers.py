@@ -130,7 +130,23 @@ def test_overloads_and_timeouts_are_retried() -> None:
     )
     assert reply.content[0].text == "ok" and sleeps == [20.0, 40.0]
 
-    bad_request = Exception.__new__(openai.APIStatusError)
+    # A 200 with no choices (seen from NVIDIA's free queue) is a busy provider, not a crash.
+    sleeps.clear()
+    empty = SimpleNamespace(choices=None, usage=None)
+    client = OpenAICompatClient(
+        FakeOpenAI(empty, completion(content="ok", finish="stop")), sleep=sleeps.append
+    )
+    reply = client.beta.messages.create(
+        model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert reply.content[0].text == "ok" and sleeps == [20.0]
+    client = OpenAICompatClient(FakeOpenAI(*[empty] * 6), sleep=sleeps.append)
+    with pytest.raises(ProviderError, match="empty reply"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )
+
+    bad_request =Exception.__new__(openai.APIStatusError)
     bad_request.status_code, bad_request.message, bad_request.body = 400, "bad schema", None
     client = OpenAICompatClient(FakeOpenAI(bad_request), sleep=sleeps.append)
     with pytest.raises(ProviderError, match="bad schema"):
