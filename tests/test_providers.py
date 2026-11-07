@@ -195,6 +195,11 @@ def test_daily_quota_is_not_retried() -> None:
 def test_tool_schemas_are_made_portable() -> None:
     tools = {t["name"]: to_openai_tool(t) for t in TOOL_DEFINITIONS}
     assert "parameters" not in tools["list_tables"]["function"]  # no-argument tool
+    # Cerebras rejects a tool without `parameters`, so its preset sends an empty object.
+    list_tables = next(t for t in TOOL_DEFINITIONS if t["name"] == "list_tables")
+    cerebras = to_openai_tool(list_tables, empty_parameters=True)["function"]["parameters"]
+    assert cerebras["type"] == "object" and not cerebras.get("properties")
+    assert cerebras_settings(AgentSettings(), "gpt-oss-120b").empty_tool_parameters
     submit = tools["submit_answer"]["function"]["parameters"]
     assert "additionalProperties" not in submit and "strict" not in tools["submit_answer"]
     assert submit["properties"]["sql"]["type"] == "string"  # was ["string", "null"]

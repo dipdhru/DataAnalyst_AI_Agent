@@ -40,6 +40,9 @@ class AgentSettings(BaseModel):
     reasoning_effort: str | None = None
     # Wait out a daily-limit 429 when the provider says it frees up within this many seconds.
     max_quota_wait_s: float = 0.0
+    # Send `parameters` even for a tool with no arguments: Cerebras requires it, Gemini rejects
+    # an empty object schema.
+    empty_tool_parameters: bool = False
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
     max_tokens: int = 16_000
