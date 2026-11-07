@@ -146,7 +146,7 @@ def test_overloads_and_timeouts_are_retried() -> None:
             model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
         )
 
-    bad_request =Exception.__new__(openai.APIStatusError)
+    bad_request = Exception.__new__(openai.APIStatusError)
     bad_request.status_code, bad_request.message, bad_request.body = 400, "bad schema", None
     client = OpenAICompatClient(FakeOpenAI(bad_request), sleep=sleeps.append)
     with pytest.raises(ProviderError, match="bad schema"):
