@@ -1,6 +1,6 @@
 """Model providers. The agent loop speaks the Anthropic Messages shape; other providers get an
-adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, NVIDIA, OpenRouter,
-Ollama).
+adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, NVIDIA, Cerebras,
+OpenRouter, Ollama).
 """
 
 from __future__ import annotations
@@ -133,6 +133,28 @@ def nvidia_settings(settings: AgentSettings, model: str) -> AgentSettings:
             # The free queue can take about 2 minutes for even a tiny request; a shorter limit
             # abandons replies that are nearly ready and sends the request to the back again.
             "request_timeout_s": 300.0,
+            "reasoning_effort": None,
+            # The same rows per query as Groq, so both providers see the same tool results.
+            "result_rows_shown": 20,
+        }
+    )
+
+
+CEREBRAS_URL = "https://api.cerebras.ai/v1"
+
+
+def cerebras_settings(settings: AgentSettings, model: str) -> AgentSettings:
+    """Settings for Cerebras's free trial (key in CEREBRAS_API_KEY; its model id has no
+    `openai/` prefix: `gpt-oss-120b`). Reported trial limits: 5 requests a minute and 1M tokens
+    a day, so the request rate sets the pace."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": CEREBRAS_URL,
+            "api_key_env": "CEREBRAS_API_KEY",
+            "model": model,
+            "min_seconds_between_calls": 13.0,
+            "request_timeout_s": 120.0,
             "reasoning_effort": None,
             # The same rows per query as Groq, so both providers see the same tool results.
             "result_rows_shown": 20,

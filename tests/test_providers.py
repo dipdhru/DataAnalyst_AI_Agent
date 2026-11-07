@@ -15,6 +15,7 @@ from analyst.agent.providers import (
     OpenAICompatClient,
     ProviderError,
     RequestTooLargeError,
+    cerebras_settings,
     groq_settings,
     make_llm_client,
     nvidia_settings,
@@ -297,6 +298,16 @@ def test_nvidia_preset_reads_its_own_key(monkeypatch) -> None:
     assert nvidia.min_seconds_between_calls > 0
     with pytest.raises(ProviderError, match="NVIDIA_API_KEY is not set"):
         make_llm_client(nvidia)
+
+
+def test_cerebras_preset_reads_its_own_key(monkeypatch) -> None:
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    cerebras = cerebras_settings(AgentSettings(), "gpt-oss-120b")
+    assert cerebras.base_url.startswith("https://api.cerebras.ai/")
+    # 5 requests a minute: calls at least 12 seconds apart stay under it.
+    assert cerebras.min_seconds_between_calls >= 12
+    with pytest.raises(ProviderError, match="CEREBRAS_API_KEY is not set"):
+        make_llm_client(cerebras)
 
 
 def _bad_tool_call_error() -> openai.BadRequestError:
