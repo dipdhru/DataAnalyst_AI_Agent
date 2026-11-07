@@ -130,7 +130,9 @@ def nvidia_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "api_key_env": "NVIDIA_API_KEY",
             "model": model,
             "min_seconds_between_calls": 2.0,
-            "request_timeout_s": 120.0,
+            # The free queue can take about 2 minutes for even a tiny request; a shorter limit
+            # abandons replies that are nearly ready and sends the request to the back again.
+            "request_timeout_s": 300.0,
             "reasoning_effort": None,
             # The same rows per query as Groq, so both providers see the same tool results.
             "result_rows_shown": 20,
