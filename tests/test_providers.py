@@ -15,8 +15,10 @@ from analyst.agent.providers import (
     OpenAICompatClient,
     ProviderError,
     RequestTooLargeError,
+    cerebras_settings,
     groq_settings,
     make_llm_client,
+    nvidia_settings,
     ollama_settings,
     to_openai_tool,
 )
@@ -128,6 +130,22 @@ def test_overloads_and_timeouts_are_retried() -> None:
         model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
     )
     assert reply.content[0].text == "ok" and sleeps == [20.0, 40.0]
+
+    # A 200 with no choices (seen from NVIDIA's free queue) is a busy provider, not a crash.
+    sleeps.clear()
+    empty = SimpleNamespace(choices=None, usage=None)
+    client = OpenAICompatClient(
+        FakeOpenAI(empty, completion(content="ok", finish="stop")), sleep=sleeps.append
+    )
+    reply = client.beta.messages.create(
+        model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+    )
+    assert reply.content[0].text == "ok" and sleeps == [20.0]
+    client = OpenAICompatClient(FakeOpenAI(*[empty] * 6), sleep=sleeps.append)
+    with pytest.raises(ProviderError, match="empty reply"):
+        client.beta.messages.create(
+            model="m", max_tokens=10, messages=[{"role": "user", "content": "hi"}]
+        )
 
     bad_request = Exception.__new__(openai.APIStatusError)
     bad_request.status_code, bad_request.message, bad_request.body = 400, "bad schema", None
@@ -271,6 +289,25 @@ def test_groq_preset_reads_its_own_key(monkeypatch) -> None:
     assert groq.base_url.startswith("https://api.groq.com/") and groq.min_seconds_between_calls > 0
     with pytest.raises(ProviderError, match="GROQ_API_KEY is not set"):
         make_llm_client(groq)
+
+
+def test_nvidia_preset_reads_its_own_key(monkeypatch) -> None:
+    monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+    nvidia = nvidia_settings(AgentSettings(), "openai/gpt-oss-20b")
+    assert nvidia.base_url.startswith("https://integrate.api.nvidia.com/")
+    assert nvidia.min_seconds_between_calls > 0
+    with pytest.raises(ProviderError, match="NVIDIA_API_KEY is not set"):
+        make_llm_client(nvidia)
+
+
+def test_cerebras_preset_reads_its_own_key(monkeypatch) -> None:
+    monkeypatch.delenv("CEREBRAS_API_KEY", raising=False)
+    cerebras = cerebras_settings(AgentSettings(), "gpt-oss-120b")
+    assert cerebras.base_url.startswith("https://api.cerebras.ai/")
+    # 5 requests a minute: calls at least 12 seconds apart stay under it.
+    assert cerebras.min_seconds_between_calls >= 12
+    with pytest.raises(ProviderError, match="CEREBRAS_API_KEY is not set"):
+        make_llm_client(cerebras)
 
 
 def _bad_tool_call_error() -> openai.BadRequestError:

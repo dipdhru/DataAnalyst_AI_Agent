@@ -1,5 +1,6 @@
 """Model providers. The agent loop speaks the Anthropic Messages shape; other providers get an
-adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, OpenRouter, Ollama).
+adapter that translates to and from an OpenAI-style chat API (Gemini, Groq, NVIDIA, Cerebras,
+OpenRouter, Ollama).
 """
 
 from __future__ import annotations
@@ -116,6 +117,51 @@ def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
     )
 
 
+NVIDIA_URL = "https://integrate.api.nvidia.com/v1"
+
+
+def nvidia_settings(settings: AgentSettings, model: str) -> AgentSettings:
+    """Settings for NVIDIA's free endpoints (key in NVIDIA_API_KEY). NVIDIA doesn't publish firm
+    limits; about 40 requests a minute is the usual report, so calls get a short gap."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": NVIDIA_URL,
+            "api_key_env": "NVIDIA_API_KEY",
+            "model": model,
+            "min_seconds_between_calls": 2.0,
+            # The free queue can take about 2 minutes for even a tiny request; a shorter limit
+            # abandons replies that are nearly ready and sends the request to the back again.
+            "request_timeout_s": 300.0,
+            "reasoning_effort": None,
+            # The same rows per query as Groq, so both providers see the same tool results.
+            "result_rows_shown": 20,
+        }
+    )
+
+
+CEREBRAS_URL = "https://api.cerebras.ai/v1"
+
+
+def cerebras_settings(settings: AgentSettings, model: str) -> AgentSettings:
+    """Settings for Cerebras's free trial (key in CEREBRAS_API_KEY; its model id has no
+    `openai/` prefix: `gpt-oss-120b`). Reported trial limits: 5 requests a minute and 1M tokens
+    a day, so the request rate sets the pace."""
+    return settings.model_copy(
+        update={
+            "provider": "openai_compatible",
+            "base_url": CEREBRAS_URL,
+            "api_key_env": "CEREBRAS_API_KEY",
+            "model": model,
+            "min_seconds_between_calls": 13.0,
+            "request_timeout_s": 120.0,
+            "reasoning_effort": None,
+            # The same rows per query as Groq, so both providers see the same tool results.
+            "result_rows_shown": 20,
+        }
+    )
+
+
 class OpenAICompatClient:
     """Looks like anthropic.Anthropic to the agent: exposes `beta.messages.create(...)`."""
 
@@ -175,7 +221,7 @@ class OpenAICompatClient:
         while True:
             self._throttle()
             try:
-                return self._openai.chat.completions.create(**request)
+                response = self._openai.chat.completions.create(**request)
             except openai.APIStatusError as e:
                 if _bad_tool_call(e):
                     # The model wrote a malformed tool call (Groq rejects it with a 400).
@@ -203,6 +249,11 @@ class OpenAICompatClient:
                 failure: tuple[int | None, str] = (e.status_code, _message(e))
             except openai.APIConnectionError as e:  # includes timeouts
                 failure = (None, f"could not reach the {request['model']} provider ({e})")
+            else:
+                if getattr(response, "choices", None):
+                    return response
+                # A busy free queue (NVIDIA) can answer 200 with no choices: retry it like a 503.
+                failure = (None, f"the {request['model']} provider sent an empty reply")
             if attempt == self.RATE_LIMIT_RETRIES:
                 status, message = failure
                 raise ProviderError(status, f"gave up after {attempt + 1} tries: {message}")
