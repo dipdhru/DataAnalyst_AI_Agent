@@ -5,7 +5,8 @@
 Three views:
 - Chat: answers use memory (verified answers, glossary, corrections) and the earlier turns of
   the conversation, so follow-ups work. Mark an answer correct, or correct it, to teach it.
-  Conversations are saved and can be reopened.
+  Conversations are saved and can be reopened. "Double-check answers" asks every question a
+  second, independent time and labels the answer (agent/trust.py).
 - Catalog: read and edit table and column descriptions; refresh; let the model fill gaps.
 - Memory: everything the agent has been taught, with delete.
 
@@ -24,6 +25,7 @@ import streamlit as st
 
 from analyst.agent import Agent, AgentAnswer, ToolCall, Turn
 from analyst.agent.providers import ProviderError, make_llm_client
+from analyst.agent.trust import cross_check, needs_second_attempt, second_attempt_prompt
 from analyst.catalog import CatalogService, CatalogStore
 from analyst.catalog.describer import describe_catalog
 from analyst.charts import make_figure, suggest_chart
@@ -100,8 +102,27 @@ def fmt(value: Any) -> str:
 
 
 # ---- chat ----------------------------------------------------------------------------------
-def show_answer(a: AgentAnswer, model: str, used: list[str]) -> None:
+def show_trust(trust: dict[str, str] | None) -> None:
+    """Agreement is evidence, not proof: two attempts can share a mistake, so "confident" says
+    what was checked rather than "correct"."""
+    if not trust or trust["label"] == "no_answer":
+        return
+    if trust["label"] == "confident":
+        st.markdown(
+            ":green-badge[✅ Double-checked] A second, independent attempt got the same result."
+        )
+    else:
+        st.markdown(
+            f":orange-badge[⚠️ Double-check this] A second attempt didn't confirm it: "
+            f"{trust['reason']}. Look at the SQL before relying on this answer."
+        )
+
+
+def show_answer(
+    a: AgentAnswer, model: str, used: list[str], trust: dict[str, str] | None = None
+) -> None:
     if a.status == "answered":
+        show_trust(trust)
         st.markdown(a.answer or "")
     elif a.status == "unanswerable":
         st.info(a.answer or "The data can't answer this question.")
@@ -177,9 +198,12 @@ def ask(
     model: str,
     memory_text: str,
     turns: list[Turn],
-) -> tuple[AgentAnswer | None, str | None]:
-    """Run the agent with a live status box. Returns (answer, None) or (None, error text)."""
+    double_check: bool = False,
+) -> tuple[AgentAnswer | None, dict[str, str] | None, str | None]:
+    """Run the agent with a live status box. Returns (answer, trust label or None, None) or
+    (None, None, error text)."""
     agent_settings = b["settings"].agent.model_copy(update={"model": model})
+    trust = None
     with st.status("Working on it...", expanded=True) as status:
 
         def on_step(step: ToolCall) -> None:
@@ -188,8 +212,8 @@ def ask(
         def on_wait(message: str) -> None:
             status.write(":orange[The model is busy, waiting a moment...]")
 
-        try:
-            agent = Agent(
+        def new_agent() -> Agent:
+            return Agent(
                 client_for(model, b, on_wait),
                 b["connector"],
                 catalog,
@@ -197,27 +221,46 @@ def ask(
                 b["semantics"],
                 on_step=on_step,
             )
-            answer = agent.ask(question, memory=memory_text, history=turns)
+
+        try:
+            answer = new_agent().ask(question, memory=memory_text, history=turns)
         except ProviderError as e:
             log.warning("provider error for %s: %s", model, e.message)
             status.update(label="The model could not answer", state="error", expanded=False)
             if "daily free quota" in e.message:
-                return None, (
-                    f"Today's free quota for **{model}** is used up. Pick another "
-                    "model in the sidebar, or try again tomorrow."
+                return (
+                    None,
+                    None,
+                    (
+                        f"Today's free quota for **{model}** is used up. Pick another "
+                        "model in the sidebar, or try again tomorrow."
+                    ),
                 )
-            return None, f"Model provider error: {e.message}"
+            return None, None, f"Model provider error: {e.message}"
         except Exception as e:  # show anything unexpected instead of failing silently
             log.exception("agent run failed")
             status.update(label="Something went wrong", state="error", expanded=False)
-            return None, f"Unexpected error: {type(e).__name__}: {e}"
+            return None, None, f"Unexpected error: {type(e).__name__}: {e}"
+        if double_check and needs_second_attempt(answer):
+            status.write("**Double-checking:** a second, independent attempt")
+            try:
+                second = new_agent().ask(
+                    second_attempt_prompt(question), memory=memory_text, history=turns
+                )
+            except ProviderError as e:  # the first answer stands; it just isn't confirmed
+                log.warning("second attempt failed for %s: %s", model, e.message)
+                second = None
+            check = cross_check(
+                answer, second, b["connector"], row_cap=b["settings"].query.max_row_limit
+            )
+            trust = {"label": check.label, "reason": check.reason}
         state = "complete" if answer.status in ("answered", "unanswerable") else "error"
         status.update(
             label=f"Done: {len(answer.steps)} steps, {answer.elapsed_s:.0f}s",
             state=state,
             expanded=False,
         )
-    return answer, None
+    return answer, trust, None
 
 
 def save(memory: MemoryStore, source: str, message: dict[str, Any]) -> None:
@@ -228,7 +271,9 @@ def save(memory: MemoryStore, source: str, message: dict[str, Any]) -> None:
     memory.add_message(st.session_state.conversation_id, message)
 
 
-def chat_view(source: str, b: dict[str, Any], catalog: Any, model: str) -> None:
+def chat_view(
+    source: str, b: dict[str, Any], catalog: Any, model: str, double_check: bool = False
+) -> None:
     st.title("Ask your data")
     st.caption(
         "Ask a business question in plain English. The AI explores the data with read-only "
@@ -243,7 +288,12 @@ def chat_view(source: str, b: dict[str, Any], catalog: Any, model: str) -> None:
             elif "error" in m:
                 st.error(m["error"])
             else:
-                show_answer(AgentAnswer.model_validate(m["answer"]), m["model"], m.get("used", []))
+                show_answer(
+                    AgentAnswer.model_validate(m["answer"]),
+                    m["model"],
+                    m.get("used", []),
+                    m.get("trust"),
+                )
                 feedback(i, m, source, memory)
 
     question = st.chat_input("Ask a question about your data", disabled=catalog is None)
@@ -260,15 +310,18 @@ def chat_view(source: str, b: dict[str, Any], catalog: Any, model: str) -> None:
         used = [f"Verified answer: {e.question}" for e in recalled.examples]
         used += [f"Glossary: {f.term}: {f.text}" for f in recalled.glossary]
         used += [f"Correction: {f.text}" for f in recalled.corrections]
-        answer, error = ask(question, b, catalog, model, render(recalled), history(messages[:-1]))
+        answer, trust, error = ask(
+            question, b, catalog, model, render(recalled), history(messages[:-1]), double_check
+        )
         if answer:
-            show_answer(answer, model, used)
+            show_answer(answer, model, used, trust)
             reply = {
                 "role": "assistant",
                 "question": question,
                 "answer": answer.model_dump(mode="json"),
                 "model": model,
                 "used": used,
+                "trust": trust,
             }
         else:
             st.error(error)
@@ -440,6 +493,11 @@ with st.sidebar:
 
     view = st.radio("View", ["Chat", "Catalog", "Memory"], horizontal=True)
     if view == "Chat":
+        double_check = st.toggle(
+            "Double-check answers",
+            help="Ask each question a second, independent time and label the answer "
+            "double-checked or not. Uses about twice the model calls.",
+        )
         if st.button("New conversation"):
             st.session_state.messages = []
             st.session_state.pop("conversation_id", None)
@@ -458,7 +516,7 @@ with st.sidebar:
                 st.session_state.pending = example
 
 if view == "Chat":
-    chat_view(source, b, catalog, model)
+    chat_view(source, b, catalog, model, double_check)
 elif view == "Catalog":
     catalog_view(source, b, catalog, model)
 else:

@@ -12,7 +12,9 @@ read it before starting a new phase.
   Golden questions: Claude may draft questions, SQL and answers, but an expected answer only
   counts once the user has approved it (definitions are approved; questions are still draft).
 - Phase 3 done: Streamlit UI with Chat (live steps, charts, table, SQL, follow-ups, saved
-  conversations), Catalog (edit descriptions, refresh, AI-written gaps) and Memory views.
+  conversations, "Double-check answers" toggle showing the trust label; off by default because
+  it doubles model calls), Catalog (edit descriptions, refresh, AI-written gaps) and Memory
+  views.
 - Phase 4 done: memory in `state/app.db` (verified queries, glossary, corrections,
   conversations), recalled into each question. Only the user writes memory (UI buttons); the
   agent only reads it. Evals and benchmarks run without memory so scores stay comparable.
