@@ -1,5 +1,9 @@
 # DataAnalyst Agent
 
+[![CI](https://github.com/dipdhru/DataAnalyst_AI_Agent/actions/workflows/ci.yml/badge.svg)](https://github.com/dipdhru/DataAnalyst_AI_Agent/actions/workflows/ci.yml)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat)
+![License](https://img.shields.io/badge/License-MIT-green?style=flat)
+
 Ask a database a business question in plain English and get an answer with the SQL, a table and
 a chart. The agent explores the schema with read-only queries, runs its own SQL, and re-runs the
 final query before it answers, so every number comes with the query that produced it.
