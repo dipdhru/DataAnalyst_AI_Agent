@@ -31,7 +31,15 @@ from analyst.catalog.describer import describe_catalog
 from analyst.charts import make_figure, suggest_chart
 from analyst.config import load_settings
 from analyst.connectors import SourceRegistry
+from analyst.demo import (
+    PROVIDERS,
+    ConnectError,
+    Workspace,
+    agent_settings_for,
+    demo_enabled,
+)
 from analyst.memory import MemoryStore, recall, render, revalidate
+from analyst.netguard import UnsafeHostError
 from analyst.semantic import load_semantics
 
 log = logging.getLogger("analyst.ui")
@@ -54,6 +62,7 @@ EXAMPLES = [
     "Which 5 product categories bring in the most revenue?",
     "What share of customers ordered more than once?",
 ]
+DEMO = demo_enabled()  # public host: isolated sessions, visitors bring their database and key
 HISTORY_TURNS = 3  # earlier answered questions replayed to the agent for follow-ups
 
 st.set_page_config(page_title="DataAnalyst Agent", page_icon=":bar_chart:", layout="wide")
@@ -76,7 +85,9 @@ def backend(config_path: str, source: str) -> dict[str, Any]:
 
 def client_for(model: str, b: dict[str, Any], on_wait=None) -> Any:
     agent_settings = b["settings"].agent.model_copy(update={"model": model})
-    return st.session_state.get("llm_client") or make_llm_client(agent_settings, on_wait=on_wait)
+    return st.session_state.get("llm_client") or make_llm_client(
+        agent_settings, on_wait=on_wait, api_key=b.get("api_key")
+    )
 
 
 def step_text(step: ToolCall) -> str:
@@ -460,12 +471,138 @@ def memory_view(source: str, b: dict[str, Any]) -> None:
             st.rerun()
 
 
+# ---- demo mode -----------------------------------------------------------------------------
+def workspace() -> Workspace:
+    """This browser session's own state, connections and memory (never shared)."""
+    if "workspace" not in st.session_state:
+        st.session_state.workspace = Workspace(load_settings(CONFIG))
+    return st.session_state.workspace
+
+
+def demo_controls(ws: Workspace) -> tuple[Any, str]:
+    """Sidebar for the public demo: model key and the visitor's own database."""
+    st.header("Try it on your data")
+    st.warning(
+        "Use a **read-only** database user, ideally on a copy, not production. Your connection "
+        "string and API key are held in this session's memory and never written to disk. Column "
+        "samples and chat history sit in a temporary folder deleted when your session ends. "
+        "Query results are sent to the model provider you pick.",
+        icon="🔒",
+    )
+    provider = PROVIDERS[st.selectbox("Model provider", list(PROVIDERS))]
+    api_key = st.text_input(
+        "Your API key",
+        type="password",
+        help="Both providers have a free tier. The key stays in this session and is never "
+        "shared or stored by this app.",
+    ).strip()
+
+    with st.form("connect", border=False):
+        raw_url = st.text_input(
+            "Postgres connection string",
+            type="password",
+            placeholder="postgresql://user:password@host:5432/dbname",
+        )
+        schemas = st.text_input("Schemas", "public", help="Comma-separated, up to 5.")
+        if st.form_submit_button("Connect", use_container_width=True):
+            try:
+                with st.spinner("Connecting..."):
+                    st.session_state.demo_source = ws.connect_postgres(raw_url, schemas)
+            except (UnsafeHostError, ConnectError) as e:
+                st.error(str(e))
+    if ws.source_names():
+        mine = [n for n in ws.source_names() if n.startswith("your_database")]
+        if mine and st.button("Disconnect my database", use_container_width=True):
+            for name in mine:
+                ws.disconnect(name)
+            st.session_state.pop("demo_source", None)
+            st.rerun()
+    return agent_settings_for(provider, load_settings(CONFIG).agent), api_key
+
+
+READ_ONLY_USER_SQL = """\
+-- Run as an admin, on a copy of your data if you can. Change the names and the password.
+CREATE ROLE analyst_ro LOGIN PASSWORD 'choose-a-strong-password';
+GRANT CONNECT ON DATABASE your_db TO analyst_ro;
+GRANT USAGE ON SCHEMA public TO analyst_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO analyst_ro;
+"""
+
+
+def landing() -> None:
+    st.title("Ask your data")
+    st.markdown(
+        "Ask a database a business question in plain English and get an answer with the SQL, a "
+        "table and a chart. Every number comes with the query that produced it.\n\n"
+        "**To start**, in the sidebar:\n"
+        "1. Pick a model provider and paste your own free API key.\n"
+        "2. Paste a Postgres connection string for a **read-only** user and press Connect.\n\n"
+        "Queries are checked twice before they run: the connection is read-only and a SQL guard "
+        "rejects anything but a single SELECT."
+    )
+    st.subheader("How to connect")
+    with st.expander("1. Get a free API key"):
+        st.markdown(
+            "- **Gemini:** sign in at [aistudio.google.com](https://aistudio.google.com/apikey) "
+            "and choose *Create API key*.\n"
+            "- **Groq:** sign in at [console.groq.com](https://console.groq.com/keys) and choose "
+            "*Create API key*.\n\n"
+            "Free tiers have daily limits. If one runs out, switch model in the sidebar."
+        )
+    with st.expander("2. Create a read-only database user"):
+        st.markdown(
+            "Don't use your admin login. Make a user that can only read, ideally on a copy of "
+            "the data rather than production:"
+        )
+        st.code(READ_ONLY_USER_SQL, language="sql")
+        st.caption("Tables in other schemas need the same two GRANT lines for that schema.")
+    with st.expander("3. Build the connection string"):
+        st.markdown(
+            "The format is:\n\n"
+            "`postgresql://USER:PASSWORD@HOST:5432/DBNAME`\n\n"
+            "- Hosted databases (Supabase, Neon, Render, AWS RDS and similar) show it under "
+            "*Connection string* or *Connect* in their dashboard.\n"
+            "- A special character in the password (such as `@` or `/`) must be URL-encoded, "
+            "for example `@` becomes `%40`.\n"
+            "- Put the schema in the *Schemas* box if your tables aren't in `public`."
+        )
+    with st.expander("If it won't connect"):
+        st.markdown(
+            '- **"Private or local network":** the demo runs on the public internet, so it '
+            "can't reach `localhost` or an internal address. Use a database with a public "
+            "address, or run this app yourself ([instructions on GitHub]"
+            "(https://github.com/dipdhru/DataAnalyst_AI_Agent)).\n"
+            "- **Timeout or refused:** allow inbound connections to your database from the "
+            "internet (its firewall or *allowed IPs* list).\n"
+            "- **Password authentication failed:** check the user and password, and "
+            "URL-encode special characters.\n"
+            "- **No tables found:** check the schema name and that the user has `USAGE` on it "
+            "and `SELECT` on its tables."
+        )
+
+
 # ---- sidebar -------------------------------------------------------------------------------
 settings = load_settings(CONFIG)
+ws: Workspace | None = None
+demo_agent = None
+demo_key = ""
+if DEMO:
+    ws = workspace()
+    with st.sidebar:
+        demo_agent, demo_key = demo_controls(ws)
+    if not demo_key or not ws.source_names():
+        landing()
+        st.stop()
 with st.sidebar:
     st.header("Settings")
-    source = st.selectbox("Data source", [s.name for s in settings.sources])
-    b = backend(str(CONFIG), source)
+    names = ws.source_names() if ws else [s.name for s in settings.sources]
+    default = (
+        names.index(st.session_state["demo_source"])
+        if (DEMO and st.session_state.get("demo_source") in names)
+        else 0
+    )
+    source = st.selectbox("Data source", names, index=default)
+    b = ws.backend(source, demo_agent, demo_key) if ws else backend(str(CONFIG), source)
     agent_cfg = b["settings"].agent
     if agent_cfg.provider == "openai_compatible":
         known = next(

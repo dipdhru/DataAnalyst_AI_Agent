@@ -18,6 +18,11 @@ read it before starting a new phase.
 - Phase 4 done: memory in `state/app.db` (verified queries, glossary, corrections,
   conversations), recalled into each question. Only the user writes memory (UI buttons); the
   agent only reads it. Evals and benchmarks run without memory so scores stay comparable.
+- Demo mode (`ANALYST_DEMO=1`, branch `demo-mode`): public multi-visitor UI with per-session
+  workspaces, visitor-supplied Postgres vetted by `netguard`, bring-your-own model key, and a
+  Hugging Face Space package (`deploy/huggingface/`, `scripts/build_space.py`). Pulled forward
+  from phase 6 on user request (2026-11-12); auth, PII masking and the audit log are still
+  phase 6. Not yet built or run on Hugging Face itself.
 - Not yet: MongoDB (5), auth (6). Don't build ahead of the phase.
 - Out of scope (user decision 2026-11-03): CSV/Excel uploads and the daily briefing. Both were
   removed; don't add them back unless the user asks.
@@ -72,6 +77,8 @@ src/analyst/
     service.py       refresh / edit descriptions; keeps user descriptions across refreshes
     importers.py     dataset-supplied descriptions (BIRD CSVs), stored as description_source="import"
     describer.py     model-written descriptions for gaps only (description_source="llm")
+  netguard.py        vets a visitor's Postgres URL: public IPs only, TLS, no redirecting options
+  demo.py            demo mode: per-session Workspace, bring-your-own-key model settings
   semantic.py        metrics.yaml loader: business definitions per source
   memory/
     store.py         verified_queries, facts (glossary, corrections), conversations in app.db
@@ -144,6 +151,11 @@ scripts/build_golden.py  computes expected answers from the SQL; never hand-edit
   mapping: `UnsafeQueryError` and `QueryError` 400, `QueryTimeoutError` 408, unknown
   source/table/column 404, catalog not built yet 409, model provider errors 429/502/503.
 - No new dependency without a reason; add it with `uv add` so `uv.lock` stays in sync.
+
+- **Demo mode never touches the owner's credentials.** In `Workspace` only local SQLite sample
+  sources are offered (never a configured Postgres), model settings come from
+  `agent_settings_for` with `api_key_env=None`, and visitor URLs go through
+  `netguard.safe_postgres_url`. Error text shown to visitors must never contain the URL.
 
 ## Tests
 
