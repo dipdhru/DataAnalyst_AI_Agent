@@ -18,6 +18,15 @@ class SourceRegistry:
                     src.name, src.resolve_url(), limits=settings.query, schemas=src.schemas
                 )
 
+    def add(self, connector: Connector) -> None:
+        """Register a connector built outside the config (the demo's visitor-supplied database)."""
+        self._sources[connector.name] = connector
+
+    def remove(self, name: str) -> None:
+        connector = self._sources.pop(name, None)
+        if connector is not None:
+            connector.close()
+
     def get(self, name: str) -> Connector:
         try:
             return self._sources[name]

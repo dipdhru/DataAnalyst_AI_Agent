@@ -46,15 +46,23 @@ class RequestTooLargeError(QuestionFailedError):
         super().__init__(413, f"conversation too large for the provider: {message}")
 
 
-def make_llm_client(settings: AgentSettings, on_wait: Callable[[str], None] | None = None) -> Any:
-    """`on_wait` is told when a busy provider makes us pause (for progress output)."""
+def make_llm_client(
+    settings: AgentSettings,
+    on_wait: Callable[[str], None] | None = None,
+    api_key: str | None = None,
+) -> Any:
+    """`on_wait` is told when a busy provider makes us pause (for progress output). `api_key`
+    is a key supplied directly (the public demo's visitors bring their own); it is used instead
+    of the environment variable and only for OpenAI-compatible providers."""
     if settings.provider == "anthropic":
         import anthropic
 
         return anthropic.Anthropic()
     from openai import OpenAI
 
-    if settings.api_key_env is None:
+    if api_key:
+        key = api_key
+    elif settings.api_key_env is None:
         key = "not-needed"  # a local server such as Ollama; the SDK still wants a value
     else:
         key = os.environ.get(settings.api_key_env, "")

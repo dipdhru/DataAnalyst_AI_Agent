@@ -1,0 +1,19 @@
+# Config for the public demo. No sample databases ship with the Space and no server-side API
+# key is configured: visitors bring both (see src/analyst/demo.py).
+state_dir: state
+
+query:
+  default_row_limit: 1000
+  max_row_limit: 10000
+  timeout_seconds: 30
+
+agent:
+  provider: openai_compatible
+  base_url: https://generativelanguage.googleapis.com/v1beta/openai/
+  model: gemini-3.6-flash
+  min_seconds_between_calls: 5
+  max_steps: 15
+  result_rows_shown: 50
+
+metrics_path: metrics.yaml
+sources: []

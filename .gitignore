@@ -14,3 +14,4 @@ data/olist/
 data/bird/
 config.bird.yaml
 evals/runs/
+build/
