@@ -520,6 +520,15 @@ def demo_controls(ws: Workspace) -> tuple[Any, str]:
     return agent_settings_for(provider, load_settings(CONFIG).agent), api_key
 
 
+READ_ONLY_USER_SQL = """\
+-- Run as an admin, on a copy of your data if you can. Change the names and the password.
+CREATE ROLE analyst_ro LOGIN PASSWORD 'choose-a-strong-password';
+GRANT CONNECT ON DATABASE your_db TO analyst_ro;
+GRANT USAGE ON SCHEMA public TO analyst_ro;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO analyst_ro;
+"""
+
+
 def landing() -> None:
     st.title("Ask your data")
     st.markdown(
@@ -531,6 +540,45 @@ def landing() -> None:
         "Queries are checked twice before they run: the connection is read-only and a SQL guard "
         "rejects anything but a single SELECT."
     )
+    st.subheader("How to connect")
+    with st.expander("1. Get a free API key"):
+        st.markdown(
+            "- **Gemini:** sign in at [aistudio.google.com](https://aistudio.google.com/apikey) "
+            "and choose *Create API key*.\n"
+            "- **Groq:** sign in at [console.groq.com](https://console.groq.com/keys) and choose "
+            "*Create API key*.\n\n"
+            "Free tiers have daily limits. If one runs out, switch model in the sidebar."
+        )
+    with st.expander("2. Create a read-only database user"):
+        st.markdown(
+            "Don't use your admin login. Make a user that can only read, ideally on a copy of "
+            "the data rather than production:"
+        )
+        st.code(READ_ONLY_USER_SQL, language="sql")
+        st.caption("Tables in other schemas need the same two GRANT lines for that schema.")
+    with st.expander("3. Build the connection string"):
+        st.markdown(
+            "The format is:\n\n"
+            "`postgresql://USER:PASSWORD@HOST:5432/DBNAME`\n\n"
+            "- Hosted databases (Supabase, Neon, Render, AWS RDS and similar) show it under "
+            "*Connection string* or *Connect* in their dashboard.\n"
+            "- A special character in the password (such as `@` or `/`) must be URL-encoded, "
+            "for example `@` becomes `%40`.\n"
+            "- Put the schema in the *Schemas* box if your tables aren't in `public`."
+        )
+    with st.expander("If it won't connect"):
+        st.markdown(
+            '- **"Private or local network":** the demo runs on the public internet, so it '
+            "can't reach `localhost` or an internal address. Use a database with a public "
+            "address, or run this app yourself ([instructions on GitHub]"
+            "(https://github.com/dipdhru/DataAnalyst_AI_Agent)).\n"
+            "- **Timeout or refused:** allow inbound connections to your database from the "
+            "internet (its firewall or *allowed IPs* list).\n"
+            "- **Password authentication failed:** check the user and password, and "
+            "URL-encode special characters.\n"
+            "- **No tables found:** check the schema name and that the user has `USAGE` on it "
+            "and `SELECT` on its tables."
+        )
 
 
 # ---- sidebar -------------------------------------------------------------------------------
