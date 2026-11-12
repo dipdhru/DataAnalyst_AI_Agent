@@ -91,6 +91,13 @@ uv run uvicorn analyst.api.app:app --reload   # http://localhost:8000/docs
 3. `POST /sources/olist/query` with `{"sql": "SELECT ..."}` runs a read-only query.
 4. `POST /sources/olist/ask` with `{"question": "What is our late-delivery rate?"}` asks the agent.
 
+## Public demo
+
+`ANALYST_DEMO=1` turns the UI into a multi-visitor demo: each session gets its own isolated
+workspace, connects to the visitor's own **public, read-only** Postgres (private and local
+addresses are refused, TLS is required) and uses the visitor's own Gemini or Groq key. How to host
+it on Hugging Face: [docs/deploy-huggingface.md](docs/deploy-huggingface.md).
+
 ## Data
 
 Tests and the default config use the Olist e-commerce dataset in `data/olist/olist.sqlite`
