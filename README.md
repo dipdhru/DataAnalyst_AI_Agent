@@ -13,6 +13,10 @@ and compares the two results. Agreement gets a ✅ *Double-checked* label; disag
 ⚠️ *Double-check this*. How much that label is worth is measured on a public benchmark, below,
 not assumed.
 
+**[Try the live demo](https://dipdhru-dataanalyst-ai-agent-uiapp-e4j7an.streamlit.app)**: bring your
+own free Gemini or Groq key and a read-only Postgres. The app sleeps after a quiet spell, so the
+first visit may take a moment to wake it.
+
 ![The chat answering "Which 5 product categories bring in the most revenue?" with a Double-checked label, the answer and a bar chart](docs/images/chat-double-checked.jpg)
 
 Built as a learning and portfolio project. The plan and the phases are in
@@ -95,8 +99,8 @@ uv run uvicorn analyst.api.app:app --reload   # http://localhost:8000/docs
 
 `ANALYST_DEMO=1` turns the UI into a multi-visitor demo: each session gets its own isolated
 workspace, connects to the visitor's own **public, read-only** Postgres (private and local
-addresses are refused, TLS is required) and uses the visitor's own Gemini or Groq key. How to host
-it on Hugging Face: [docs/deploy-huggingface.md](docs/deploy-huggingface.md).
+addresses are refused, TLS is required) and uses the visitor's own Gemini or Groq key. It is hosted
+on Streamlit Community Cloud from `ui/app.py` on `main`, with the secret `ANALYST_DEMO = "1"`; see [docs/deploy-streamlit.md](docs/deploy-streamlit.md).
 
 ## Data
 
