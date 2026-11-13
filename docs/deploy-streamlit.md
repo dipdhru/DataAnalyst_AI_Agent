@@ -1,8 +1,10 @@
-# Deploying the public demo on Hugging Face
+# Hosting the public demo on Streamlit Community Cloud
 
 The demo is the Streamlit UI in **demo mode** (`ANALYST_DEMO=1`). Visitors bring their own free
 Gemini or Groq key and a **read-only** Postgres connection string. The server holds no model key
 and no database of its own.
+
+Live at https://dipdhru-dataanalyst-ai-agent-uiapp-e4j7an.streamlit.app
 
 ## What demo mode does
 
@@ -17,39 +19,29 @@ and no database of its own.
   files are not offered, and the model client only ever uses the key the visitor typed.
 - Queries still go through `Connector.run_query` (read-only session plus `sql_guard`).
 
-## Steps
+## Deploying
 
-1. Create a Space at huggingface.co/new-space: SDK **Docker**, any hardware (the free CPU tier is
-   enough).
-2. Build the Space files:
+1. Go to share.streamlit.io, sign in with GitHub and choose **Create app**.
+2. Repository `dipdhru/DataAnalyst_AI_Agent`, branch `main`, main file `ui/app.py`.
+3. Under **Advanced settings** choose Python 3.12 and add this secret:
 
-   ```bash
-   uv run python scripts/build_space.py build/space
+   ```toml
+   ANALYST_DEMO = "1"
    ```
 
-3. Push them to the Space (needs your Hugging Face login or a write token):
+4. Deploy. The app redeploys on every push to `main`.
+5. Under Settings > Sharing, make sure the app is **public**.
 
-   ```bash
-   cd build/space
-   git init && git add . && git commit -m "Demo"
-   git remote add space https://huggingface.co/spaces/<you>/<space-name>
-   git push --force space HEAD:main
-   ```
-
-4. Wait for the build, open the Space, paste a key and a connection string.
-
-Re-run steps 2-3 to update; `build/` is git-ignored.
+Dependencies come from `uv.lock`. Streamlit advises one dependency file per app, so don't add a
+`requirements.txt`.
 
 ## Known limits
 
-- **Untested on Hugging Face itself.** The tests cover demo mode, and the packaged files were
-  smoke-run locally, but the Docker image has not been built (no Docker on the dev machine).
-- **Credentials pass through the server.** Say so to visitors (the sidebar does). Advise a
-  read-only user on a copy of the data.
+- **Sleeps** after about 12 hours without visitors; the next visit wakes it.
+- **Credentials pass through the server.** The sidebar says so. Advise a read-only user on a copy
+  of the data.
 - **Query results go to the model provider the visitor chose.**
 - **No rate limit per visitor.** Their own key pays for model calls, but a visitor can still make
   the server run queries against their own database. Auth and an audit log are phase 6.
-- **Free Spaces sleep** after inactivity and the first visit wakes them (about a minute).
-- **No sample database ships with the Space.** Olist is 230 MB and under a non-commercial
-  licence. A visitor without a database of their own has nothing to try; consider a small
-  hosted demo database if you want a zero-setup path.
+- **No sample database ships with the app.** Olist is 230 MB and under a non-commercial licence,
+  so a visitor without a database of their own has nothing to try.

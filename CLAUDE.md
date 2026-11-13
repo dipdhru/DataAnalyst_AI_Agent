@@ -18,11 +18,11 @@ read it before starting a new phase.
 - Phase 4 done: memory in `state/app.db` (verified queries, glossary, corrections,
   conversations), recalled into each question. Only the user writes memory (UI buttons); the
   agent only reads it. Evals and benchmarks run without memory so scores stay comparable.
-- Demo mode (`ANALYST_DEMO=1`, branch `demo-mode`): public multi-visitor UI with per-session
-  workspaces, visitor-supplied Postgres vetted by `netguard`, bring-your-own model key, and a
-  Hugging Face Space package (`deploy/huggingface/`, `scripts/build_space.py`). Pulled forward
-  from phase 6 on user request (2026-11-12); auth, PII masking and the audit log are still
-  phase 6. Not yet built or run on Hugging Face itself.
+- Demo mode (`ANALYST_DEMO=1`): public multi-visitor UI with per-session workspaces,
+  visitor-supplied Postgres vetted by `netguard`, bring-your-own model key, and a how-to-connect
+  landing page. Live on Streamlit Community Cloud (see `docs/deploy-streamlit.md`). Pulled
+  forward from phase 6 on user request (2026-11-12); auth, PII masking and the audit log are
+  still phase 6. A Hugging Face Space was dropped: its Docker SDK is paid for new free accounts.
 - Not yet: MongoDB (5), auth (6). Don't build ahead of the phase.
 - Out of scope (user decision 2026-11-03): CSV/Excel uploads and the daily briefing. Both were
   removed; don't add them back unless the user asks.
