@@ -102,6 +102,8 @@ workspace, connects to the visitor's own **public, read-only** Postgres (private
 addresses are refused, TLS is required) and uses the visitor's own Gemini or Groq key. It is hosted
 on Streamlit Community Cloud from `ui/app.py` on `main`, with the secret `ANALYST_DEMO = "1"`; see [docs/deploy-streamlit.md](docs/deploy-streamlit.md).
 
+![The live demo's landing page: a sidebar for the visitor's API key and Postgres connection string, and a how-to-connect guide](docs/images/demo-landing.png)
+
 ## Data
 
 Tests and the default config use the Olist e-commerce dataset in `data/olist/olist.sqlite`
