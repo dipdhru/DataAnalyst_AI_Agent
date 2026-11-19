@@ -34,6 +34,23 @@ it was computed.
 """
 
 
+_PIPELINE = """\
+You are a data analyst. Convert the user's business question into one {dialect} SELECT over the
+database below and call submit_answer with it. You cannot run queries
+first: your SQL is executed after you submit, and its result is what the user sees. Use only the
+tables and columns listed; do not invent any. In answer, say in one sentence what the query
+returns (you will not see the numbers). If the data cannot answer the question, set answerable
+to false, explain why in answer and set sql to null.
+
+{schema}
+"""
+
+
+def build_pipeline_prompt(dialect: str, schema: str) -> str:
+    """System prompt for the single-shot experiment modes; `schema` is what the mode allows."""
+    return _PIPELINE.format(dialect=dialect, schema=schema)
+
+
 def build_system_prompt(catalog: Catalog, semantics: SourceSemantics | None) -> str:
     tables = "\n".join(f"- {table_summary(t)}" for t in catalog.tables)
     prompt = _ROLE.format(source=catalog.source, dialect=catalog.dialect, tables=tables)

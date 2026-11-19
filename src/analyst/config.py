@@ -43,11 +43,22 @@ class AgentSettings(BaseModel):
     # Send `parameters` even for a tool with no arguments: Cerebras requires it, Gemini rejects
     # an empty object schema.
     empty_tool_parameters: bool = False
+    # Keep union types like ["string", "null"] in tool schemas. Groq validates every call
+    # against the schema, so without this a declined answer's null sql is rejected; Gemini
+    # rejects union types, so the default simplifies them.
+    nullable_tool_types: bool = False
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high", "xhigh", "max"] = "high"
     max_tokens: int = 16_000
     max_steps: int = 15  # model turns per question before giving up
     result_rows_shown: int = 50  # rows of each query result the model sees
+    # "agent": the full tool-using agent (the app). The other three are the controlled
+    # experiment's single-shot pipelines (scripts/run_experiment.py):
+    #   direct     (A) whole schema, names and types only; no definitions; no correction
+    #   retrieval  (B) retrieved tables, descriptions and definitions; no correction
+    #   corrected  (C) as B, plus failed SQL fed back for up to max_corrections retries
+    mode: Literal["agent", "direct", "retrieval", "corrected"] = "agent"
+    max_corrections: int = 2
 
 
 class SourceConfig(BaseModel):

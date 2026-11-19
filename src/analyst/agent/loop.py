@@ -13,7 +13,8 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
 
-from analyst.agent.prompt import build_system_prompt
+from analyst.agent.prompt import build_pipeline_prompt, build_system_prompt
+from analyst.agent.retrieval import SchemaRetriever, full_schema_text
 from analyst.agent.tools import TOOL_DEFINITIONS, AgentTools, ToolCall
 from analyst.catalog import Catalog
 from analyst.config import AgentSettings
@@ -69,6 +70,9 @@ class AgentAnswer(BaseModel):
     elapsed_s: float = 0.0
     usage: Usage = Field(default_factory=Usage)
     detail: str | None = None  # why the run ended, when not answered
+    mode: str = "agent"
+    retrieved_tables: list[str] | None = None  # retrieval modes: tables the model was shown
+    corrections: int = 0  # failed submissions fed back to the model
 
     @property
     def final_sql(self) -> str | None:
@@ -94,13 +98,31 @@ class Agent:
         self.settings = settings
         self.on_step = on_step
         self.tools = AgentTools(connector, catalog, rows_shown=settings.result_rows_shown)
-        self.system = build_system_prompt(catalog, semantics)
+        self.mode = settings.mode
+        self.retriever = None
+        self.last_answer: AgentAnswer | None = None
+        if self.mode == "agent":
+            self.system = build_system_prompt(catalog, semantics)
+            self.tool_definitions = TOOL_DEFINITIONS
+        else:
+            # Single-shot pipelines: the model may only submit; it cannot explore.
+            self.tool_definitions = [t for t in TOOL_DEFINITIONS if t["name"] == "submit_answer"]
+            if self.mode == "direct":
+                self.system = build_pipeline_prompt(catalog.dialect, full_schema_text(catalog))
+            else:
+                self.retriever = SchemaRetriever(catalog, semantics)
+                self.system = ""  # built per question from what is retrieved
 
     def ask(self, question: str, *, memory: str = "", history: Sequence[Turn] = ()) -> AgentAnswer:
         """`memory`: notes recalled for this question (memory.render). `history`: earlier turns
         of the conversation, so follow-ups like "now by state" make sense."""
         start = time.perf_counter()
-        answer = AgentAnswer(question=question, status="error")
+        answer = AgentAnswer(question=question, status="error", mode=self.mode)
+        self.last_answer = answer  # kept so a caller can score a run a provider error cut short
+        if self.retriever:
+            retrieved = self.retriever.retrieve(question)
+            answer.retrieved_tables = retrieved.tables
+            self.system = build_pipeline_prompt(self.tools.catalog.dialect, retrieved.text)
         messages: list[dict[str, Any]] = _history_messages(history)
         content = f"{memory}\n\nQuestion: {question}" if memory else question
         messages.append({"role": "user", "content": content})
@@ -148,7 +170,7 @@ class Agent:
             model=self.settings.model,
             max_tokens=self.settings.max_tokens,
             system=[{"type": "text", "text": self.system, "cache_control": {"type": "ephemeral"}}],
-            tools=TOOL_DEFINITIONS,
+            tools=self.tool_definitions,
             messages=messages,
             output_config={"effort": self.settings.effort},
             **fallback,
@@ -164,11 +186,22 @@ class Agent:
                 error = self._accept(block.input, answer)
                 if error is None:
                     return [], True
-                content, is_error = f"Error: {error}. Fix the query and submit again.", True
                 self._record(
                     answer,
                     ToolCall(tool="submit_answer", input=dict(block.input), ok=False, error=error),
                 )
+                if not self._may_correct(answer):
+                    answer.status, answer.detail = "error", error
+                    return [], True
+                answer.corrections += 1
+                content, is_error = f"Error: {error}. Fix the query and submit again.", True
+            elif block.name not in {t["name"] for t in self.tool_definitions}:
+                # A model may call a tool it was not offered; single-shot modes must not explore.
+                content, record = self.tools._error(
+                    block.name, dict(block.input), f"tool {block.name!r} is not available"
+                )
+                is_error = True
+                self._record(answer, record)
             else:
                 content, record = self.tools.execute(block.name, dict(block.input))
                 is_error = not record.ok
@@ -182,6 +215,15 @@ class Agent:
                 }
             )
         return results, False
+
+    def _may_correct(self, answer: AgentAnswer) -> bool:
+        """Whether a failed submission goes back to the model. A and B get no second chance;
+        C gets max_corrections; the agent is bounded only by max_steps."""
+        if self.mode == "agent":
+            return True
+        if self.mode == "corrected":
+            return answer.corrections < self.settings.max_corrections
+        return False
 
     def _accept(self, tool_input: dict[str, Any], answer: AgentAnswer) -> str | None:
         """Validate and execute the submitted answer. Returns an error to feed back, or None."""

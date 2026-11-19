@@ -81,6 +81,7 @@ def make_llm_client(
         reasoning_effort=settings.reasoning_effort,
         max_quota_wait_s=settings.max_quota_wait_s,
         empty_tool_parameters=settings.empty_tool_parameters,
+        nullable_tool_types=settings.nullable_tool_types,
     )
 
 
@@ -122,6 +123,8 @@ def groq_settings(settings: AgentSettings, model: str) -> AgentSettings:
             "result_rows_shown": 20,
             # Groq's daily limit is a rolling window that names a short wait: sit it out.
             "max_quota_wait_s": 1800.0,
+            # Groq validates tool calls: keep sql nullable so a declined answer is accepted.
+            "nullable_tool_types": True,
         }
     )
 
@@ -190,9 +193,11 @@ class OpenAICompatClient:
         reasoning_effort: str | None = None,
         max_quota_wait_s: float = 0.0,
         empty_tool_parameters: bool = False,
+        nullable_tool_types: bool = False,
     ) -> None:
         self._openai = openai_client
         self._empty_tool_parameters = empty_tool_parameters
+        self._nullable_tool_types = nullable_tool_types
         self._reasoning_effort = reasoning_effort
         self._max_quota_wait = max_quota_wait_s
         self._on_wait = on_wait
@@ -219,7 +224,12 @@ class OpenAICompatClient:
         }
         if tools:
             request["tools"] = [
-                to_openai_tool(t, empty_parameters=self._empty_tool_parameters) for t in tools
+                to_openai_tool(
+                    t,
+                    empty_parameters=self._empty_tool_parameters,
+                    nullable=self._nullable_tool_types,
+                )
+                for t in tools
             ]
             request["tool_choice"] = "auto"
         if self._reasoning_effort:
@@ -289,22 +299,30 @@ class OpenAICompatClient:
         self._last_call = self._clock()
 
 
-def to_openai_tool(tool: dict[str, Any], *, empty_parameters: bool = False) -> dict[str, Any]:
+def to_openai_tool(
+    tool: dict[str, Any], *, empty_parameters: bool = False, nullable: bool = False
+) -> dict[str, Any]:
     function: dict[str, Any] = {"name": tool["name"], "description": tool["description"]}
-    schema = _portable_schema(tool["input_schema"])
+    schema = _portable_schema(tool["input_schema"], keep_unions=nullable)
     if schema.get("properties") or empty_parameters:
         function["parameters"] = schema
     return {"type": "function", "function": function}
 
 
-def _portable_schema(schema: dict[str, Any]) -> dict[str, Any]:
+def _portable_schema(schema: dict[str, Any], *, keep_unions: bool = False) -> dict[str, Any]:
     """Drop JSON-Schema features some providers reject (Gemini's schema is an OpenAPI subset):
-    `additionalProperties`, and union types like ["string", "null"] (kept as the first type)."""
+    `additionalProperties`, and union types like ["string", "null"] (kept as the first type).
+
+    Dropping "null" means a provider that validates calls (Groq) rejects a null value, so a
+    nullable string is told to use "" for none; the loop treats "" like null."""
     out = copy.deepcopy(schema)
     out.pop("additionalProperties", None)
     for prop in out.get("properties", {}).values():
-        if isinstance(prop.get("type"), list):
+        if isinstance(prop.get("type"), list) and not keep_unions:
+            nullable = "null" in prop["type"]
             prop["type"] = next(t for t in prop["type"] if t != "null")
+            if nullable and prop["type"] == "string":
+                prop["description"] = f'{prop.get("description", "")} Use "" for none.'.strip()
     return out
 
 

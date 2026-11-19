@@ -203,7 +203,14 @@ def test_tool_schemas_are_made_portable() -> None:
     submit = tools["submit_answer"]["function"]["parameters"]
     assert "additionalProperties" not in submit and "strict" not in tools["submit_answer"]
     assert submit["properties"]["sql"]["type"] == "string"  # was ["string", "null"]
+    # Groq validates calls against this schema, so a declined question must send "", not null.
+    assert 'Use "" for none.' in submit["properties"]["sql"]["description"]
     assert submit["required"] == ["answer", "sql", "answerable"]
+    # Groq validates calls and accepts unions, so its preset keeps sql nullable.
+    assert groq_settings(AgentSettings(), "m").nullable_tool_types
+    groq = next(t for t in TOOL_DEFINITIONS if t["name"] == "submit_answer")
+    groq_sql = to_openai_tool(groq, nullable=True)["function"]["parameters"]["properties"]["sql"]
+    assert groq_sql["type"] == ["string", "null"]
     # The originals (used for Claude) are untouched.
     claude_submit = next(t for t in TOOL_DEFINITIONS if t["name"] == "submit_answer")
     assert claude_submit["input_schema"]["properties"]["sql"]["type"] == ["string", "null"]
