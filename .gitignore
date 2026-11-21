@@ -14,3 +14,7 @@ data/olist/
 data/bird/
 config.bird.yaml
 evals/runs/
+
+# Local AI-assistant settings
+CLAUDE.md
+.claude/

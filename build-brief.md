@@ -28,7 +28,7 @@ A plug-and-play data analyst chatbot for databases. Connect an existing SQL data
 6. Guardrails: read-only DB user, PII column masking, audit log of every query, per-query cost/row caps.
 
 ## Build phases
-0. Scaffold: repo, CLAUDE.md, folder layout, Olist test data, Docker skeleton.
+0. Scaffold: repo, folder layout, Olist test data, Docker skeleton.
 1. Connectors and catalog (Postgres/SQLite).
 2. Agent core with tool loop, SQL validator, and a golden test set of 20-30 questions with expected answers (run as an eval on every change).
 3. Chat UI (Streamlit) with tables, charts, and "show SQL".
