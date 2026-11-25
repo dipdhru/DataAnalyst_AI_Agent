@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DataAnalyst Agent: how it works</title>
+<meta name="description" content="How the DataAnalyst Agent turns a business question into checked SQL, how it is kept read-only, and how it is measured.">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --surface: #ffffff;
+    --surface-2: #f3f1ec;
+    --text: #1d1c1a;
+    --muted: #5f5b53;
+    --line: #e2ded5;
+    --accent: #2f6f5e;
+    --accent-soft: #e3efe9;
+    --warn: #a2551b;
+    --warn-soft: #f7e9dc;
+    --bad: #a83a32;
+    --bar-a: #b9b2a5;
+    --bar-b: #2f6f5e;
+    --bar-c: #6aa58f;
+    --code-bg: #f3f1ec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161614;
+      --surface: #1f1f1c;
+      --surface-2: #272723;
+      --text: #ecebe6;
+      --muted: #a9a59b;
+      --line: #36352f;
+      --accent: #7cc4a9;
+      --accent-soft: #23362f;
+      --warn: #e3a26c;
+      --warn-soft: #3a2b1f;
+      --bad: #e58b82;
+      --bar-a: #6b675e;
+      --bar-b: #7cc4a9;
+      --bar-c: #4d8c76;
+      --code-bg: #272723;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161614; --surface: #1f1f1c; --surface-2: #272723; --text: #ecebe6; --muted: #a9a59b;
+    --line: #36352f; --accent: #7cc4a9; --accent-soft: #23362f; --warn: #e3a26c; --warn-soft: #3a2b1f;
+    --bad: #e58b82; --bar-a: #6b675e; --bar-b: #7cc4a9; --bar-c: #4d8c76; --code-bg: #272723;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 48px 16px 96px; }
+  h1 { font-size: clamp(30px, 5vw, 42px); line-height: 1.15; margin: 0 0 12px; letter-spacing: -0.02em; }
+  h2 { font-size: 24px; margin: 64px 0 12px; letter-spacing: -0.01em; }
+  h3 { font-size: 18px; margin: 28px 0 8px; }
+  p, li { color: var(--text); }
+  .lede { font-size: 19px; color: var(--muted); max-width: 680px; }
+  .kicker { font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); margin: 0 0 8px; }
+  a { color: var(--accent); }
+  code { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; overflow-x: auto; }
+  pre code { background: none; padding: 0; font-size: 13.5px; }
+  nav.toc { margin: 28px 0 0; display: flex; flex-wrap: wrap; gap: 8px; }
+  nav.toc a { text-decoration: none; font-size: 14px; padding: 5px 11px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--surface); }
+  nav.toc a:hover { color: var(--text); border-color: var(--muted); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; margin: 18px 0; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; margin: 18px 0; }
+  .grid .card { margin: 0; }
+  .card h3 { margin-top: 0; }
+  .note { border-left: 3px solid var(--accent); background: var(--accent-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; margin: 18px 0; }
+  .note.warn { border-color: var(--warn); background: var(--warn-soft); }
+  .tag { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); margin-right: 6px; }
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 13px; color: var(--muted); font-weight: 600; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-wrap { overflow-x: auto; }
+  svg { display: block; width: 100%; height: auto; }
+  svg text { fill: var(--text); font-family: inherit; }
+  svg .muted { fill: var(--muted); }
+  svg .box { fill: var(--surface); stroke: var(--line); stroke-width: 1.5; }
+  svg .box-accent { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+  svg .box-warn { fill: var(--warn-soft); stroke: var(--warn); stroke-width: 1.5; }
+  svg .arrow { stroke: var(--muted); stroke-width: 1.6; fill: none; marker-end: url(#arrowhead); }
+  svg .arrow-accent { stroke: var(--accent); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrowhead-accent); }
+  .figure { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 18px; margin: 20px 0; overflow-x: auto; }
+  /* On phones the diagrams scroll sideways instead of shrinking their labels to unreadable sizes. */
+  @media (max-width: 640px) { .figure svg { min-width: 620px; } .figure { padding: 12px; } }
+  .caption { font-size: 14px; color: var(--muted); margin: 10px 2px 0; }
+  ol.steps { counter-reset: s; list-style: none; padding: 0; }
+  ol.steps > li { counter-increment: s; position: relative; padding: 0 0 18px 46px; }
+  ol.steps > li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 30px; height: 30px; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 700; display: grid; place-items: center; font-size: 15px; }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .compare { grid-template-columns: 1fr; } main { padding-top: 32px; } }
+  .compare .card { margin: 0; }
+  .good { color: var(--accent); font-weight: 600; }
+  .badc { color: var(--bad); font-weight: 600; }
+  footer { margin-top: 72px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 20px; }
+</style>
+</head>
+<body>
+<main>
+
+<p class="kicker">DataAnalyst Agent</p>
+<h1>How it works</h1>
+<p class="lede">You ask a database a business question in plain English. The agent writes SQL, runs it read-only, checks it, and gives back the number together with the query that produced it. This page walks through every step and shows how the project measures whether the answers are right.</p>
+<p><a href="https://dipdhru-dataanalyst-ai-agent-uiapp-e4j7an.streamlit.app">Try the live demo</a> · <a href="../README.md">README</a> · <a href="benchmarks.md">Benchmark plan</a></p>
+
+<nav class="toc" aria-label="Contents">
+  <a href="#picture">The big picture</a>
+  <a href="#walkthrough">One question, step by step</a>
+  <a href="#catalog">Catalog</a>
+  <a href="#definitions">Definitions</a>
+  <a href="#safety">Safety</a>
+  <a href="#trust">Trust check</a>
+  <a href="#memory">Memory</a>
+  <a href="#measuring">Measuring it</a>
+  <a href="#experiment">The A/B/C experiment</a>
+  <a href="#code">Code map</a>
+  <a href="#limits">Limits</a>
+</nav>
+
+<!-- ============================================================ -->
+<h2 id="picture">The big picture</h2>
+<p>There are three parts. A <strong>catalog</strong> learns the database before any question is asked. An <strong>agent</strong> answers the question with a small set of tools. A <strong>checking layer</strong> makes sure the SQL is safe, runs it again, and, if you ask for it, compares it with a second independent attempt.</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 400" role="img" aria-label="Architecture: question goes to the agent, which uses the catalog, definitions and memory, calls tools through the SQL guard against a read-only database, and returns an answer with SQL, table, chart and trust label.">
+  <defs>
+    <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/></marker>
+    <marker id="arrowhead-accent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--accent)"/></marker>
+  </defs>
+
+  <!-- question -->
+  <rect class="box" x="10" y="160" width="130" height="70" rx="10"/>
+  <text x="75" y="190" text-anchor="middle" font-weight="600" font-size="15">Your question</text>
+  <text x="75" y="210" text-anchor="middle" class="muted" font-size="12">"Total revenue?"</text>
+
+  <!-- context column -->
+  <rect class="box" x="190" y="20" width="170" height="62" rx="10"/>
+  <text x="275" y="46" text-anchor="middle" font-weight="600" font-size="14">Catalog</text>
+  <text x="275" y="65" text-anchor="middle" class="muted" font-size="12">tables, columns, joins</text>
+  <rect class="box" x="190" y="96" width="170" height="62" rx="10"/>
+  <text x="275" y="122" text-anchor="middle" font-weight="600" font-size="14">Definitions</text>
+  <text x="275" y="141" text-anchor="middle" class="muted" font-size="12">metrics.yaml</text>
+  <rect class="box" x="190" y="172" width="170" height="62" rx="10"/>
+  <text x="275" y="198" text-anchor="middle" font-weight="600" font-size="14">Memory</text>
+  <text x="275" y="217" text-anchor="middle" class="muted" font-size="12">verified answers, glossary</text>
+
+  <!-- agent -->
+  <rect class="box-accent" x="410" y="60" width="180" height="160" rx="12"/>
+  <text x="500" y="88" text-anchor="middle" font-weight="700" font-size="15">Agent (tool loop)</text>
+  <text x="500" y="114" text-anchor="middle" font-size="12.5">list_tables</text>
+  <text x="500" y="134" text-anchor="middle" font-size="12.5">describe_table</text>
+  <text x="500" y="154" text-anchor="middle" font-size="12.5">run_sql</text>
+  <text x="500" y="174" text-anchor="middle" font-size="12.5">submit_answer</text>
+  <text x="500" y="204" text-anchor="middle" class="muted" font-size="11.5">up to 15 model turns</text>
+
+  <!-- guard + db -->
+  <rect class="box-warn" x="410" y="268" width="180" height="56" rx="10"/>
+  <text x="500" y="292" text-anchor="middle" font-weight="600" font-size="14">SQL guard</text>
+  <text x="500" y="310" text-anchor="middle" class="muted" font-size="12">one SELECT only</text>
+  <rect class="box" x="410" y="340" width="180" height="50" rx="10"/>
+  <text x="500" y="363" text-anchor="middle" font-weight="600" font-size="14">Database (read-only)</text>
+  <text x="500" y="380" text-anchor="middle" class="muted" font-size="11.5">SQLite or Postgres</text>
+
+  <!-- answer -->
+  <rect class="box" x="640" y="110" width="170" height="130" rx="12"/>
+  <text x="725" y="138" text-anchor="middle" font-weight="700" font-size="15">Answer</text>
+  <text x="725" y="162" text-anchor="middle" font-size="12.5">sentence + number</text>
+  <text x="725" y="181" text-anchor="middle" font-size="12.5">the SQL</text>
+  <text x="725" y="200" text-anchor="middle" font-size="12.5">table + chart</text>
+  <text x="725" y="219" text-anchor="middle" font-size="12.5">trust label</text>
+
+  <!-- arrows -->
+  <path class="arrow" d="M140 195 L405 150"/>
+  <path class="arrow" d="M360 51 L405 100"/>
+  <path class="arrow" d="M360 127 L405 130"/>
+  <path class="arrow" d="M360 203 L405 170"/>
+  <path class="arrow" d="M500 220 L500 263"/>
+  <path class="arrow" d="M500 324 L500 336"/>
+  <path class="arrow-accent" d="M555 268 Q 600 245 575 222"/>
+  <path class="arrow" d="M590 160 L635 170"/>
+  <text x="622" y="262" class="muted" font-size="11">results back</text>
+</svg>
+<p class="caption">Everything the agent runs, including the catalog's profiling queries, goes through the same guard and the same read-only connection.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="walkthrough">One question, step by step</h2>
+<p>Take <em>"What is our total revenue?"</em> on the Olist e-commerce data (about 100,000 Brazilian orders, 11 tables). It looks easy, and it's a good example of why the project exists.</p>
+
+<ol class="steps">
+  <li><strong>The prompt is built.</strong> The model gets the list of tables, the business definitions for this data source, and any memory that matches the question (an answer you marked correct before, a glossary entry). The prompt stays the same for every question on a source, so the provider can cache it.</li>
+  <li><strong>The agent explores.</strong> It may call <code>describe_table("order_items")</code> to see columns, nulls and sample values, then try a query with <code>run_sql</code> to look at real rows. Each result comes back trimmed to 50 rows so the model's context doesn't fill up.</li>
+  <li><strong>It applies the definition.</strong> The definitions say revenue is <code>SUM(order_items.price)</code> over <em>valid</em> orders (not canceled or unavailable), and that <code>payment_value</code> is not revenue, because it also includes freight, interest and vouchers.</li>
+  <li><strong>It submits.</strong> <code>submit_answer</code> carries a one-sentence answer, the final SQL, and whether the question was answerable at all.</li>
+  <li><strong>The SQL is run again.</strong> The submitted SQL is executed through the guard before the answer is accepted. If it fails, the error goes back to the model to fix. The number you see is always the output of the SQL you see, never a number the model typed.</li>
+  <li><strong>The answer is shown</strong> with the SQL, the result table, a chart picked from the shape of the result (a single number, a line over time or bars), and, with "Double-check answers" on, a trust label.</li>
+</ol>
+
+<div class="compare">
+  <div class="card">
+    <span class="tag">Without definitions</span>
+    <pre><code>SELECT SUM(payment_value)
+FROM order_payments;</code></pre>
+    <p class="badc">16,008,872.12: runs fine, wrong number</p>
+    <p style="margin:0;color:var(--muted);font-size:14px">Includes freight, interest and canceled orders.</p>
+  </div>
+  <div class="card">
+    <span class="tag">With definitions</span>
+    <pre><code>SELECT ROUND(SUM(oi.price), 2)
+FROM order_items oi
+JOIN orders o USING (order_id)
+WHERE o.order_status NOT IN
+  ('canceled', 'unavailable');</code></pre>
+    <p class="good">13,494,400.74: the business's answer</p>
+  </div>
+</div>
+
+<div class="note">The real danger in text-to-SQL is not SQL that crashes. It's SQL that <strong>runs</strong> and returns a believable but wrong number. Most of this project's design is about that.</div>
+
+<!-- ============================================================ -->
+<h2 id="catalog">The catalog: learning the database first</h2>
+<p>Before any question, the catalog reads the schema and profiles every column: share of nulls, number of distinct values, min and max, and a few sample values. The profiling SQL is portable, built with sqlglot and rendered in each database's dialect, so the same code runs on SQLite and Postgres.</p>
+<div class="grid">
+  <div class="card"><h3>Inferred joins</h3><p>Olist declares no foreign keys. The catalog infers joins from matching column names where one side is a key (all values distinct and non-null), so the agent knows <code>orders.customer_id = customers.customer_id</code>.</p></div>
+  <div class="card"><h3>Descriptions from three places</h3><p>Yours (typed in the Catalog view), imported ones (for example BIRD's column CSVs), or ones the model writes for gaps. <strong>Yours always win</strong> and survive every refresh.</p></div>
+  <div class="card"><h3>Stored locally</h3><p>Catalogs live in <code>state/app.db</code> (SQLite), next to memory and saved conversations.</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="definitions">Business definitions: the semantic layer</h2>
+<p><code>metrics.yaml</code> holds what words mean <em>for this business</em>. A few of the Olist ones:</p>
+<div class="table-wrap">
+<table>
+  <tr><th>Term</th><th>Meaning</th><th>The trap it prevents</th></tr>
+  <tr><td><code>revenue</code></td><td>SUM(order_items.price) over valid orders</td><td>Using payment_value, adding freight</td></tr>
+  <tr><td><code>customer</code></td><td>A person: customers.customer_unique_id</td><td>customer_id is per order, so 99,441 "customers" instead of 96,096</td></tr>
+  <tr><td><code>late_delivery</code></td><td>Delivered on a later <em>day</em> than estimated</td><td>Comparing timestamps marks same-day deliveries late</td></tr>
+  <tr><td><code>active_seller</code></td><td>At least one item in a valid order</td><td>Counting the whole sellers table</td></tr>
+</table>
+</div>
+<p>A database can tell a model which columns exist. It can't tell it which of two valid queries the business means. Definitions fill that gap, and the <a href="#experiment">experiment</a> below measures how much it matters.</p>
+
+<!-- ============================================================ -->
+<h2 id="safety">Safety: read-only in two layers</h2>
+<p>The agent writes its own SQL, so the system assumes some of it will be wrong or hostile and blocks writes in two independent places.</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 190" role="img" aria-label="Two safety layers: the SQL guard rejects anything that is not a single SELECT, and the read-only connection refuses writes even if the guard is bypassed.">
+  <rect class="box" x="10" y="65" width="150" height="60" rx="10"/>
+  <text x="85" y="92" text-anchor="middle" font-weight="600" font-size="14">Model's SQL</text>
+  <text x="85" y="110" text-anchor="middle" class="muted" font-size="12">anything at all</text>
+
+  <rect class="box-warn" x="220" y="20" width="250" height="150" rx="12"/>
+  <text x="345" y="46" text-anchor="middle" font-weight="700" font-size="15">Layer 1: SQL guard</text>
+  <text x="345" y="72" text-anchor="middle" font-size="12.5">parse with sqlglot</text>
+  <text x="345" y="92" text-anchor="middle" font-size="12.5">exactly one SELECT, no DDL/DML</text>
+  <text x="345" y="112" text-anchor="middle" font-size="12.5">blocked functions (file reads, sleep)</text>
+  <text x="345" y="132" text-anchor="middle" font-size="12.5">known tables only</text>
+  <text x="345" y="152" text-anchor="middle" font-size="12.5">row LIMIT capped, timeout</text>
+
+  <rect class="box-warn" x="530" y="20" width="280" height="150" rx="12"/>
+  <text x="670" y="46" text-anchor="middle" font-weight="700" font-size="15">Layer 2: read-only connection</text>
+  <text x="670" y="80" text-anchor="middle" font-size="12.5">SQLite opened with mode=ro</text>
+  <text x="670" y="102" text-anchor="middle" font-size="12.5">Postgres: TRANSACTION READ ONLY</text>
+  <text x="670" y="136" text-anchor="middle" class="muted" font-size="12">holds even if layer 1 has a bug</text>
+
+  <path class="arrow" d="M160 95 L215 95"/>
+  <path class="arrow" d="M470 95 L525 95"/>
+</svg>
+<p class="caption">Neither layer is trusted alone. Tests deliberately skip the guard to prove the connection still refuses writes.</p>
+</div>
+
+<p>Every query in the codebase, from the agent, the profiler or the API, goes through one method, <code>Connector.run_query</code>, which applies both. In the public demo, a visitor's Postgres address is also vetted (public IPs only, TLS required), so the app can't be used to reach private networks.</p>
+
+<!-- ============================================================ -->
+<h2 id="trust">The trust check: knowing when not to trust it</h2>
+<p>A wrong answer looks exactly like a right one. With <em>Double-check answers</em> on, the agent answers the question a second time, told to work it out from scratch and to prefer a different way of writing the query. Then the two results are compared.</p>
+<div class="compare">
+  <div class="card"><h3>✅ Double-checked</h3><p>Both attempts returned the same result. Not proof, because both can make the same mistake, but a useful signal.</p></div>
+  <div class="card"><h3>⚠️ Double-check this</h3><p>The attempts disagree. Look at the SQL before you use the number.</p></div>
+</div>
+<p>On the BIRD benchmark sample, answers labelled double-checked were right 9 of 11 times (82%), against 11 of 15 (73%) for all answers. That's an early number from a small sample. The check doubles model calls, so it's off by default.</p>
+
+<!-- ============================================================ -->
+<h2 id="memory">Memory: only you write it</h2>
+<p>Three kinds of memory are recalled into each question by word overlap (TF-IDF):</p>
+<ul>
+  <li><strong>Verified queries.</strong> Answers you marked correct, reused as worked examples.</li>
+  <li><strong>Glossary.</strong> Your words for things ("GMV means revenue").</li>
+  <li><strong>Corrections.</strong> "That was wrong because…", so the mistake isn't repeated.</li>
+</ul>
+<p>The agent <strong>reads</strong> memory but never writes it. Only the buttons in the UI do. A model that saves its own conclusions can turn one wrong answer into a permanent one. After a catalog refresh, verified queries are checked again so stale ones drop out. Evaluations run <em>without</em> memory, so scores stay comparable over time.</p>
+
+<!-- ============================================================ -->
+<h2 id="measuring">Measuring it</h2>
+<div class="grid">
+  <div class="card">
+    <h3>Golden questions</h3>
+    <p>30 Olist business questions in <code>evals/golden.yaml</code>, across revenue, orders, delivery, customers, sellers, reviews, payments, marketing and 2 questions the data can't answer. Each has hand-written SQL. Expected answers are <strong>computed from that SQL</strong> by a script, never typed in, and a question only counts once its owner has reviewed and approved it.</p>
+  </div>
+  <div class="card">
+    <h3>Scoring</h3>
+    <p>An answer passes if its result table matches the golden one: every expected column is found among the returned ones, numbers within a small tolerance, row order checked only when the golden SQL sorts. For unanswerable questions, declining is the right answer.</p>
+  </div>
+  <div class="card">
+    <h3>Public benchmark</h3>
+    <p>BIRD Mini-Dev, the standard text-to-SQL benchmark, scored by execution accuracy on a fixed sample. Long runs save after every question and resume the next day, so free-tier daily limits don't lose work.</p>
+  </div>
+</div>
+<p>Agent tests never call a real model. A scripted fake model plays back replies, so the test suite (300+ tests) runs offline in about 20 seconds.</p>
+
+<!-- ============================================================ -->
+<h2 id="experiment">The A/B/C experiment</h2>
+<p>Which parts of the design actually help? To find out, the same model answers the same 30 questions in three stripped-down setups. Each makes one attempt, without the tool loop, so only one thing changes at each step.</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 230" role="img" aria-label="Three pipelines. A: whole schema, names and types only, one try. B: retrieved tables with descriptions and definitions, one try. C: B plus up to two retries with the error fed back.">
+  <defs>
+    <marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--muted)"/></marker>
+  </defs>
+  <!-- A -->
+  <text x="10" y="44" font-weight="700" font-size="16">A</text>
+  <rect class="box" x="40" y="18" width="250" height="44" rx="9"/>
+  <text x="165" y="45" text-anchor="middle" font-size="13">whole schema: names + types</text>
+  <path d="M290 40 L345 40" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box" x="350" y="18" width="140" height="44" rx="9"/>
+  <text x="420" y="45" text-anchor="middle" font-size="13">one try</text>
+  <path d="M490 40 L545 40" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box" x="550" y="18" width="120" height="44" rx="9"/>
+  <text x="610" y="45" text-anchor="middle" font-size="13">score</text>
+
+  <!-- B -->
+  <text x="10" y="119" font-weight="700" font-size="16">B</text>
+  <rect class="box-accent" x="40" y="93" width="250" height="44" rx="9"/>
+  <text x="165" y="114" text-anchor="middle" font-size="13">retrieved tables + descriptions</text>
+  <text x="165" y="130" text-anchor="middle" font-size="13">+ definitions</text>
+  <path d="M290 115 L345 115" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box" x="350" y="93" width="140" height="44" rx="9"/>
+  <text x="420" y="120" text-anchor="middle" font-size="13">one try</text>
+  <path d="M490 115 L545 115" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box" x="550" y="93" width="120" height="44" rx="9"/>
+  <text x="610" y="120" text-anchor="middle" font-size="13">score</text>
+
+  <!-- C -->
+  <text x="10" y="194" font-weight="700" font-size="16">C</text>
+  <rect class="box-accent" x="40" y="168" width="250" height="44" rx="9"/>
+  <text x="165" y="195" text-anchor="middle" font-size="13">same as B</text>
+  <path d="M290 190 L345 190" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box-warn" x="350" y="168" width="140" height="44" rx="9"/>
+  <text x="420" y="189" text-anchor="middle" font-size="13">try; if SQL fails,</text>
+  <text x="420" y="205" text-anchor="middle" font-size="13">fix (max 2)</text>
+  <path d="M490 190 L545 190" style="stroke: var(--muted); stroke-width:1.6" marker-end="url(#ah2)"/>
+  <rect class="box" x="550" y="168" width="120" height="44" rx="9"/>
+  <text x="610" y="195" text-anchor="middle" font-size="13">score</text>
+
+  <text x="700" y="45" class="muted" font-size="12">baseline</text>
+  <text x="700" y="120" class="muted" font-size="12">+ help</text>
+  <text x="700" y="195" class="muted" font-size="12">+ correction</text>
+</svg>
+<p class="caption">Retrieval picks about 4 of the 11 tables per question by TF-IDF similarity to the question, plus any table a retrieved definition's SQL mentions.</p>
+</div>
+
+<h3>First full run</h3>
+<p>Model <code>gpt-oss-120b</code> on Groq's free tier, all 30 questions, 2026-11-20.</p>
+
+<div class="figure">
+<svg viewBox="0 0 820 270" role="img" aria-label="Bar chart. Accuracy: A 36.7%, B 63.3%, C 63.3%. SQL ran: A 100%, B 89.3%, C 89.3%.">
+  <!-- axis -->
+  <line x1="70" y1="220" x2="800" y2="220" style="stroke: var(--line); stroke-width:1.5"/>
+  <line x1="70" y1="20" x2="800" y2="20" style="stroke: var(--line); stroke-dasharray:3 4"/>
+  <line x1="70" y1="120" x2="800" y2="120" style="stroke: var(--line); stroke-dasharray:3 4"/>
+  <text x="60" y="224" text-anchor="end" class="muted" font-size="12">0%</text>
+  <text x="60" y="124" text-anchor="end" class="muted" font-size="12">50%</text>
+  <text x="60" y="24" text-anchor="end" class="muted" font-size="12">100%</text>
+
+  <!-- group 1: accuracy (height = pct*2) -->
+  <rect x="120" y="146.6" width="70" height="73.4" rx="3" style="fill: var(--bar-a)"/>
+  <rect x="200" y="93.4" width="70" height="126.6" rx="3" style="fill: var(--bar-b)"/>
+  <rect x="280" y="93.4" width="70" height="126.6" rx="3" style="fill: var(--bar-c)"/>
+  <text x="155" y="140" text-anchor="middle" font-size="13" font-weight="600">36.7%</text>
+  <text x="235" y="87" text-anchor="middle" font-size="13" font-weight="600">63.3%</text>
+  <text x="315" y="87" text-anchor="middle" font-size="13" font-weight="600">63.3%</text>
+  <text x="235" y="246" text-anchor="middle" font-size="14" font-weight="600">Right answer</text>
+
+  <!-- group 2: execution -->
+  <rect x="470" y="20" width="70" height="200" rx="3" style="fill: var(--bar-a)"/>
+  <rect x="550" y="41.4" width="70" height="178.6" rx="3" style="fill: var(--bar-b)"/>
+  <rect x="630" y="41.4" width="70" height="178.6" rx="3" style="fill: var(--bar-c)"/>
+  <text x="505" y="40" text-anchor="middle" font-size="13" font-weight="600" style="fill: var(--bg)">100%</text>
+  <text x="585" y="62" text-anchor="middle" font-size="13" font-weight="600" style="fill: var(--bg)">89.3%</text>
+  <text x="665" y="62" text-anchor="middle" font-size="13" font-weight="600" style="fill: var(--bg)">89.3%</text>
+  <text x="585" y="246" text-anchor="middle" font-size="14" font-weight="600">SQL ran</text>
+
+  <!-- legend -->
+  <rect x="300" y="256" width="12" height="12" rx="2" style="fill: var(--bar-a)"/><text x="318" y="267" font-size="12.5">A direct</text>
+  <rect x="400" y="256" width="12" height="12" rx="2" style="fill: var(--bar-b)"/><text x="418" y="267" font-size="12.5">B retrieval</text>
+  <rect x="510" y="256" width="12" height="12" rx="2" style="fill: var(--bar-c)"/><text x="528" y="267" font-size="12.5">C + correction</text>
+</svg>
+<p class="caption">A's SQL always ran, yet it was right barely a third of the time. Running is not the same as being right.</p>
+</div>
+
+<div class="table-wrap">
+<table>
+  <tr><th>Metric</th><th class="num">A: direct</th><th class="num">B: retrieval</th><th class="num">C: + correction</th></tr>
+  <tr><td>Right answer</td><td class="num">36.7% (11/30)</td><td class="num">63.3% (19/30)</td><td class="num">63.3% (19/30)</td></tr>
+  <tr><td>SQL ran (answerable questions)</td><td class="num">100%</td><td class="num">89.3%</td><td class="num">89.3%</td></tr>
+  <tr><td>Needed tables shown (retrieval recall)</td><td class="num">all</td><td class="num">95.2%</td><td class="num">95.2%</td></tr>
+  <tr><td>Questions where correction ran</td><td class="num">n/a</td><td class="num">n/a</td><td class="num">0</td></tr>
+  <tr><td>Median time per question</td><td class="num">10.4 s</td><td class="num">10.3 s</td><td class="num">10.3 s</td></tr>
+  <tr><td>Input tokens per question</td><td class="num">700</td><td class="num">733</td><td class="num">733</td></tr>
+  <tr><td>Unanswerable questions declined</td><td class="num">2/2</td><td class="num">2/2</td><td class="num">2/2</td></tr>
+</table>
+</div>
+
+<h3>What it shows</h3>
+<div class="grid">
+  <div class="card"><h3>Help matters: +26.7 points</h3><p>B fixed 8 questions A got wrong, mostly revenue, customers and sellers. A's failures were all SQL that ran and returned the wrong number. Without definitions, it guessed what "revenue" or "customer" means.</p></div>
+  <div class="card"><h3>Correction never ran</h3><p>No SQL failed, so C behaved exactly like B on every question. Correction only fixes SQL that crashes, and this model's mistakes are SQL that runs.</p></div>
+  <div class="card"><h3>Retrieval's price</h3><p>B's 3 misses are exactly the 3 questions where retrieval left out a needed table. Each time, the model declined instead of guessing. Shown the whole schema, A got one of them right.</p></div>
+</div>
+
+<div class="note warn"><strong>Read these as early numbers.</strong> One model, one run, 30 questions, where one question is worth 3.3 points. The golden questions were still being reviewed. And A and B differ in two ways at once (fewer tables <em>and</em> definitions), so the +26.7 can't yet be split between them. Next: a whole-schema-plus-definitions setup to separate the two, more questions, more models and repeated runs.</div>
+
+<p>Run it yourself (free, Groq key in <code>.env</code>):</p>
+<pre><code>uv run python scripts/run_experiment.py --groq openai/gpt-oss-120b --resume</code></pre>
+
+<!-- ============================================================ -->
+<h2 id="code">Code map</h2>
+<div class="table-wrap">
+<table>
+  <tr><th>Where</th><th>What it does</th></tr>
+  <tr><td><code>src/analyst/sql_guard.py</code></td><td>sqlglot validator: one SELECT, blocked functions, known tables, LIMIT cap</td></tr>
+  <tr><td><code>src/analyst/connectors/</code></td><td><code>run_query</code> for SQLite and Postgres: guard, read-only connection, timeout</td></tr>
+  <tr><td><code>src/analyst/catalog/</code></td><td>Profiling, inferred joins, descriptions (user / import / model)</td></tr>
+  <tr><td><code>metrics.yaml</code>, <code>semantic.py</code></td><td>Business definitions per source</td></tr>
+  <tr><td><code>src/analyst/agent/loop.py</code></td><td>The tool loop; re-runs the final SQL; experiment modes</td></tr>
+  <tr><td><code>src/analyst/agent/retrieval.py</code></td><td>TF-IDF schema retrieval for experiment B and C</td></tr>
+  <tr><td><code>src/analyst/agent/trust.py</code></td><td>Second attempt and comparison for the trust label</td></tr>
+  <tr><td><code>src/analyst/agent/providers.py</code></td><td>Claude, or any OpenAI-compatible API (Gemini, Groq, Cerebras, …)</td></tr>
+  <tr><td><code>src/analyst/memory/</code></td><td>Verified queries, glossary, corrections; TF-IDF recall</td></tr>
+  <tr><td><code>src/analyst/evals/</code></td><td>Scoring, golden-set runner, BIRD benchmark, resumable campaigns</td></tr>
+  <tr><td><code>ui/app.py</code></td><td>Streamlit app: Chat, Catalog and Memory views; demo mode</td></tr>
+  <tr><td><code>scripts/run_experiment.py</code></td><td>Runs A/B/C and writes the comparison report</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="limits">Limits, said plainly</h2>
+<ul>
+  <li>Small samples so far: 30 golden questions and 20 BIRD questions, one run per setup.</li>
+  <li>The trust check can't catch a mistake both attempts make the same way.</li>
+  <li>Memory recall matches words, not meaning: "sales" won't find a note about "revenue".</li>
+  <li>No login, PII masking or audit log yet (planned). Column samples store raw values.</li>
+  <li>SQL databases only. MongoDB is a later phase.</li>
+</ul>
+
+<footer>
+  DataAnalyst Agent: a learning and portfolio project. Source, tests and the full plan are in the repository.
+</footer>
+
+</main>
+</body>
+</html>

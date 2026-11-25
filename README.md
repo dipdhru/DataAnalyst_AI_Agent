@@ -53,6 +53,9 @@ training. The differences between the first three rows are within noise.
 
 ## How it works
 
+A detailed walkthrough with diagrams, the safety layers and the A/B/C experiment's results is in
+[docs/how-it-works.html](docs/how-it-works.html) (download it and open it in a browser).
+
 1. **Catalog.** Reads the schema, profiles every column (nulls, distinct values, ranges, samples),
    infers joins the database doesn't declare, and keeps descriptions: yours, imported, or written
    by the model for gaps. Your edits always win.
