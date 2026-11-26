@@ -34,7 +34,7 @@ questions:
 - id: rev_total
   category: revenue
   difficulty: easy
-  status: draft
+  status: approved
   question: What is our total revenue?
   uses:
   - revenue
@@ -53,7 +53,7 @@ questions:
 - id: rev_top_categories
   category: revenue
   difficulty: medium
-  status: draft
+  status: approved
   question: What are the top 5 product categories by revenue?
   uses:
   - revenue
@@ -90,7 +90,7 @@ questions:
 - id: rev_monthly_2017
   category: revenue
   difficulty: medium
-  status: draft
+  status: approved
   question: Show monthly revenue for 2017.
   uses:
   - revenue
@@ -137,7 +137,7 @@ questions:
 - id: rev_best_month
   category: revenue
   difficulty: medium
-  status: draft
+  status: approved
   question: Which month had the highest revenue ever?
   uses:
   - revenue
@@ -161,7 +161,7 @@ questions:
 - id: rev_aov
   category: revenue
   difficulty: easy
-  status: draft
+  status: approved
   question: What is our average order value?
   uses:
   - aov
@@ -181,7 +181,7 @@ questions:
 - id: rev_growth_2018
   category: revenue
   difficulty: hard
-  status: draft
+  status: approved
   question: How did revenue in January to August 2018 compare with the same period of 2017?
   uses:
   - revenue
@@ -213,7 +213,7 @@ questions:
 - id: rev_freight_share
   category: revenue
   difficulty: easy
-  status: draft
+  status: approved
   question: How much do customers pay in freight, as a percentage of item revenue?
   uses:
   - revenue
@@ -231,7 +231,7 @@ questions:
 - id: rev_top_states
   category: revenue
   difficulty: medium
-  status: draft
+  status: approved
   question: Which 5 customer states bring in the most revenue?
   uses:
   - revenue
@@ -262,7 +262,7 @@ questions:
 - id: ord_total
   category: orders
   difficulty: easy
-  status: draft
+  status: approved
   question: How many orders have been placed in total?
   notes: All orders, any status. The agent should say that this includes canceled ones.
   sql: |
@@ -275,7 +275,7 @@ questions:
 - id: ord_cancel_rate
   category: orders
   difficulty: easy
-  status: draft
+  status: approved
   question: What percentage of orders are canceled?
   notes: Status 'canceled' only; 'unavailable' is a separate status.
   sql: |
@@ -289,7 +289,7 @@ questions:
 - id: del_late_rate
   category: delivery
   difficulty: medium
-  status: draft
+  status: approved
   question: What is our late-delivery rate?
   uses:
   - delivered_order
@@ -309,7 +309,7 @@ questions:
 - id: del_late_by_state
   category: delivery
   difficulty: hard
-  status: draft
+  status: approved
   question: Which 5 states have the worst late-delivery rate (states with at least 500 delivered orders)?
   uses:
   - delivered_order
@@ -351,7 +351,7 @@ questions:
 - id: del_avg_days
   category: delivery
   difficulty: medium
-  status: draft
+  status: approved
   question: How many days does delivery take on average?
   uses:
   - delivered_order
@@ -369,7 +369,7 @@ questions:
 - id: del_fastest_state
   category: delivery
   difficulty: medium
-  status: draft
+  status: approved
   question: Which state gets the fastest deliveries (states with at least 500 delivered orders)?
   uses:
   - delivered_order
@@ -395,7 +395,7 @@ questions:
 - id: cus_unique
   category: customers
   difficulty: medium
-  status: draft
+  status: approved
   question: How many customers do we have?
   uses:
   - customer
@@ -410,7 +410,7 @@ questions:
 - id: cus_repeat_share
   category: customers
   difficulty: hard
-  status: draft
+  status: approved
   question: What share of customers have ordered more than once?
   uses:
   - customer
@@ -441,7 +441,7 @@ questions:
 - id: cus_top_states
   category: customers
   difficulty: easy
-  status: draft
+  status: approved
   question: Which 3 states have the most customers?
   uses:
   - customer
@@ -465,7 +465,7 @@ questions:
 - id: cus_top_city
   category: customers
   difficulty: easy
-  status: draft
+  status: approved
   question: Which city has the most customers?
   uses:
   - customer
@@ -488,7 +488,7 @@ questions:
 - id: sel_active
   category: sellers
   difficulty: easy
-  status: draft
+  status: approved
   question: How many active sellers do we have?
   uses:
   - active_seller
@@ -505,7 +505,7 @@ questions:
 - id: sel_top_revenue
   category: sellers
   difficulty: medium
-  status: draft
+  status: approved
   question: Who are our top 5 sellers by revenue, and where are they based?
   uses:
   - revenue
@@ -542,7 +542,7 @@ questions:
 - id: rvw_avg_score
   category: reviews
   difficulty: easy
-  status: draft
+  status: approved
   question: What is our average review score?
   sql: |
     SELECT ROUND(AVG(review_score), 2) AS avg_review_score FROM order_reviews
@@ -554,7 +554,7 @@ questions:
 - id: rvw_five_star_share
   category: reviews
   difficulty: easy
-  status: draft
+  status: approved
   question: What percentage of reviews are 5 stars?
   sql: |
     SELECT ROUND(100.0 * SUM(review_score = 5) / COUNT(*), 1) AS five_star_pct
@@ -567,7 +567,7 @@ questions:
 - id: rvw_late_vs_on_time
   category: reviews
   difficulty: hard
-  status: draft
+  status: approved
   question: Do late deliveries get worse reviews than on-time ones?
   uses:
   - delivered_order
@@ -598,7 +598,7 @@ questions:
 - id: rvw_worst_category
   category: reviews
   difficulty: hard
-  status: draft
+  status: approved
   question: Which product category has the lowest average review score (at least 500 reviews)?
   uses:
   - category
@@ -633,7 +633,7 @@ questions:
 - id: pay_type_share
   category: payments
   difficulty: medium
-  status: draft
+  status: approved
   question: How is payment value split across payment methods?
   sql: |
     SELECT payment_type,
@@ -642,6 +642,7 @@ questions:
              AS share_pct
     FROM order_payments
     GROUP BY 1
+    HAVING SUM(payment_value) > 0
     ORDER BY payment_value DESC
   expected:
     columns:
@@ -661,13 +662,10 @@ questions:
     - - debit_card
       - 217989.79
       - 1.4
-    - - not_defined
-      - 0.0
-      - 0.0
 - id: pay_avg_installments
   category: payments
   difficulty: easy
-  status: draft
+  status: approved
   question: On average, how many installments do credit card payments use?
   sql: |
     SELECT ROUND(AVG(payment_installments), 2) AS avg_installments
@@ -681,7 +679,7 @@ questions:
 - id: mkt_lead_conversion
   category: marketing
   difficulty: medium
-  status: draft
+  status: approved
   question: What is our lead-to-seller conversion rate?
   uses:
   - lead_conversion
@@ -702,7 +700,7 @@ questions:
 - id: mkt_top_origin
   category: marketing
   difficulty: medium
-  status: draft
+  status: approved
   question: Which marketing channel brings in the most closed deals?
   sql: |
     SELECT COALESCE(q.origin, 'unknown') AS origin, COUNT(*) AS closed_deals
@@ -721,14 +719,14 @@ questions:
 - id: x_profit_margin
   category: unanswerable
   difficulty: medium
-  status: draft
+  status: approved
   question: What is our profit margin?
   expected_behaviour: Say the data has no cost or margin information, so profit can't be computed. Offer
     revenue instead. Must not invent a margin.
 - id: x_site_traffic
   category: unanswerable
   difficulty: easy
-  status: draft
+  status: approved
   question: How many people visited the website last month?
   expected_behaviour: Say there is no web traffic data. Mention the data ends in October 2018, so "last
     month" also needs clarifying. Must not return an order count as visitors.
